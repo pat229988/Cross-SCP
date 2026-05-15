@@ -1,0 +1,72 @@
+name: Release Windows
+
+on:
+  push:
+    branches:
+      - dev
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Build Windows setup EXE and portable ZIP
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+      - name: Install NSIS
+        run: choco install nsis -y
+      - name: Export release metadata
+        shell: bash
+        run: scripts/release-metadata.sh windows x64
+      - name: Configure GUI
+        run: cmake -S . -B build/gui-release -DCROSSSCP_BUILD_GUI=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build GUI
+        run: cmake --build build/gui-release --config Release
+      - name: Deploy Qt runtime
+        shell: pwsh
+        env:
+          CROSSSCP_SIGN_CERT_THUMBPRINT: ${{ secrets.CROSSSCP_SIGN_CERT_THUMBPRINT }}
+        run: scripts/deploy-windows.ps1 -BuildDir build/gui-release -QtBinDir "$env:Qt6_DIR/../../../bin"
+      - name: Create portable ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:CROSSSCP_DIST_DIR | Out-Null
+          $deployDir = "build/gui-release/apps/crossscp-gui/Release"
+          Compress-Archive -Path "$deployDir/*" -DestinationPath "$env:CROSSSCP_DIST_DIR/$env:CROSSSCP_ARTIFACT_BASE-portable.zip" -Force
+      - name: Build setup EXE
+        shell: pwsh
+        run: |
+          $deployDir = (Resolve-Path "build/gui-release/apps/crossscp-gui/Release").Path
+          $outFile = "$env:GITHUB_WORKSPACE/$env:CROSSSCP_DIST_DIR/$env:CROSSSCP_ARTIFACT_BASE-setup.exe"
+          makensis.exe "/DVERSION=$env:CROSSSCP_VERSION" "/DDEPLOY_DIR=$deployDir" "/DOUT_FILE=$outFile" packaging/windows/crossscp.nsi.in
+      - name: Generate checksums
+        shell: bash
+        run: scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
+          path: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.zip
+            ${{ env.CROSSSCP_DIST_DIR }}/*.exe
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+      - name: Upload to GitHub Release
+        if: ${{ github.ref_type == 'tag' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.zip
+            ${{ env.CROSSSCP_DIST_DIR }}/*.exe
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256

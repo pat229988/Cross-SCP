@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE' >&2
+Usage: scripts/release-metadata.sh <target-os> <target-arch>
+
+Exports normalized release metadata for packaging workflows. When GITHUB_ENV is
+set, values are appended for later GitHub Actions steps.
+
+Optional environment overrides:
+  CROSSSCP_VERSION       Explicit release version, usually vX.Y.Z
+  CROSSSCP_ARTIFACT_OS   Artifact OS label when it differs from target-os
+  CROSSSCP_DIST_DIR      Output directory for artifacts
+USAGE
+}
+
+if [[ $# -ne 2 ]]; then
+  usage
+  exit 2
+fi
+
+TARGET_OS="$1"
+TARGET_ARCH="$2"
+ARTIFACT_OS="${CROSSSCP_ARTIFACT_OS:-${TARGET_OS}}"
+
+if [[ -n "${CROSSSCP_VERSION:-}" ]]; then
+  VERSION="${CROSSSCP_VERSION}"
+elif [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+  VERSION="${GITHUB_REF_NAME}"
+else
+  SHORT_SHA="$(git rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
+  VERSION="v0.1.0-dev-${SHORT_SHA}"
+fi
+
+COMMIT_SHA="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"
+
+case "${TARGET_OS}" in
+  macos) DEFAULT_DIST_DIR="dist/macos" ;;
+  windows) DEFAULT_DIST_DIR="dist/windows" ;;
+  flatpak) DEFAULT_DIST_DIR="dist/linux/flatpak" ;;
+  ubuntu) DEFAULT_DIST_DIR="dist/linux/ubuntu" ;;
+  *) DEFAULT_DIST_DIR="dist/${TARGET_OS}" ;;
+esac
+
+DIST_DIR="${CROSSSCP_DIST_DIR:-${DEFAULT_DIST_DIR}}"
+ARTIFACT_BASE="CrossSCP-${VERSION}-${ARTIFACT_OS}-${TARGET_ARCH}"
+
+emit() {
+  printf '%s=%s\n' "$1" "$2"
+}
+
+{
+  emit CROSSSCP_VERSION "${VERSION}"
+  emit CROSSSCP_COMMIT_SHA "${COMMIT_SHA}"
+  emit CROSSSCP_TARGET_OS "${TARGET_OS}"
+  emit CROSSSCP_TARGET_ARCH "${TARGET_ARCH}"
+  emit CROSSSCP_ARTIFACT_OS "${ARTIFACT_OS}"
+  emit CROSSSCP_ARTIFACT_BASE "${ARTIFACT_BASE}"
+  emit CROSSSCP_DIST_DIR "${DIST_DIR}"
+}
+
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+  {
+    emit CROSSSCP_VERSION "${VERSION}"
+    emit CROSSSCP_COMMIT_SHA "${COMMIT_SHA}"
+    emit CROSSSCP_TARGET_OS "${TARGET_OS}"
+    emit CROSSSCP_TARGET_ARCH "${TARGET_ARCH}"
+    emit CROSSSCP_ARTIFACT_OS "${ARTIFACT_OS}"
+    emit CROSSSCP_ARTIFACT_BASE "${ARTIFACT_BASE}"
+    emit CROSSSCP_DIST_DIR "${DIST_DIR}"
+  } >> "${GITHUB_ENV}"
+fi

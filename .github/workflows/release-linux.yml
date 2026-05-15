@@ -1,0 +1,89 @@
+name: Release Linux
+
+on:
+  push:
+    branches:
+      - dev
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ubuntu-deb:
+    name: Build Ubuntu DEB
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Qt packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build qt6-base-dev qt6-declarative-dev qt6-tools-dev qt6-tools-dev-tools libgl1-mesa-dev libxkbcommon-dev
+      - name: Export release metadata
+        run: scripts/release-metadata.sh ubuntu amd64
+      - name: Configure GUI DEB package
+        run: cmake -S . -B build/ubuntu-deb -G Ninja -DCROSSSCP_BUILD_GUI=ON -DCROSSSCP_PACKAGE_DEB=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build DEB package
+        run: cmake --build build/ubuntu-deb --target package --config Release
+      - name: Collect DEB package
+        run: |
+          mkdir -p "$CROSSSCP_DIST_DIR"
+          find build/ubuntu-deb -maxdepth 1 -type f -name '*.deb' -exec cp {} "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.deb" \;
+          scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
+      - name: Upload Ubuntu DEB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
+          path: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.deb
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+      - name: Upload DEB to GitHub Release
+        if: ${{ github.ref_type == 'tag' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.deb
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+
+  flatpak:
+    name: Build Flatpak bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder appstream
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub org.kde.Platform//6.7 org.kde.Sdk//6.7
+      - name: Export release metadata
+        run: CROSSSCP_ARTIFACT_OS=linux scripts/release-metadata.sh flatpak x86_64
+      - name: Build Flatpak bundle
+        run: |
+          mkdir -p "$CROSSSCP_DIST_DIR"
+          flatpak-builder --force-clean --repo=build/flatpak-repo build/flatpak packaging/linux/flatpak/org.crossscp.CrossSCP.yml
+          flatpak build-bundle build/flatpak-repo "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.flatpak" org.crossscp.CrossSCP
+          scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
+      - name: Upload Flatpak artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
+          path: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.flatpak
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+      - name: Upload Flatpak to GitHub Release
+        if: ${{ github.ref_type == 'tag' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.flatpak
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256

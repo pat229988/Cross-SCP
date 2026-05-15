@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=CrossSCP
+Comment=Cross-platform file transfer client
+Exec=CrossSCP
+Icon=org.crossscp.CrossSCP
+Terminal=false
+Categories=Network;FileTransfer;Qt;
+StartupNotify=true

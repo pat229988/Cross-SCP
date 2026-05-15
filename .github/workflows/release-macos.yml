@@ -1,0 +1,84 @@
+name: Release macOS
+
+on:
+  push:
+    branches:
+      - dev
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dmg:
+    name: Build macOS DMG
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+      - name: Install DMG helper
+        run: brew install create-dmg
+      - name: Import signing certificate
+        env:
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          if [[ -z "$MACOS_CERTIFICATE_P12" || -z "$MACOS_CERTIFICATE_PASSWORD" ]]; then
+            echo "Skipping certificate import: macOS signing certificate secrets are not configured."
+            exit 0
+          fi
+          CERTIFICATE_PATH="$RUNNER_TEMP/crossscp-signing.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/crossscp-signing.keychain-db"
+          echo "$MACOS_CERTIFICATE_P12" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$MACOS_CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$MACOS_CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+      - name: Export release metadata
+        run: scripts/release-metadata.sh macos arm64
+      - name: Build DMG
+        env:
+          CROSSSCP_SIGN_IDENTITY: ${{ secrets.CROSSSCP_SIGN_IDENTITY }}
+        run: |
+          BUILD_DIR=build/gui-release \
+          DIST_DIR="$CROSSSCP_DIST_DIR" \
+          DMG_PATH="$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg" \
+          QT_BIN_DIR="$Qt6_DIR/../../../bin" \
+          scripts/package-gui.sh
+      - name: Notarize DMG when credentials are available
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          if [[ -z "$APPLE_ID" || -z "$APPLE_TEAM_ID" || -z "$APPLE_APP_SPECIFIC_PASSWORD" ]]; then
+            echo "Skipping notarization: Apple notarization secrets are not configured."
+            exit 0
+          fi
+          scripts/notarize-macos.sh "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg"
+      - name: Verify DMG checksum
+        run: shasum -a 256 -c "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg.sha256"
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
+          path: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.dmg
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+      - name: Upload to GitHub Release
+        if: ${{ github.ref_type == 'tag' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.dmg
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
