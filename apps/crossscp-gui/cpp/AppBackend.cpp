@@ -159,14 +159,25 @@ void AppBackend::setStatus(const QString &status) {
 
 QString AppBackend::resolveCliPath() const {
   const QDir appDir(QCoreApplication::applicationDirPath());
+#ifdef Q_OS_WIN
+  const QStringList candidates = {
+      appDir.filePath(QStringLiteral("crossscp-cli.exe")),
+      appDir.filePath(QStringLiteral("../Resources/crossscp-cli.exe")),
+      appDir.filePath(QStringLiteral("../../../../target/debug/crossscp.exe")),
+      appDir.filePath(QStringLiteral("../../../../target/release/crossscp.exe")),
+      QStringLiteral("crossscp.exe"),
+      QStringLiteral("crossscp")};
+#else
   const QStringList candidates = {
       appDir.filePath(QStringLiteral("crossscp-cli")),
       appDir.filePath(QStringLiteral("../Resources/crossscp-cli")),
       appDir.filePath(QStringLiteral("../../../../target/debug/crossscp")),
       appDir.filePath(QStringLiteral("../../../../target/release/crossscp")),
       QStringLiteral("crossscp")};
+#endif
   for (const QString &candidate : candidates) {
-    if (candidate == QStringLiteral("crossscp") || QFileInfo::exists(candidate)) {
+    if (candidate == QStringLiteral("crossscp") ||
+        candidate == QStringLiteral("crossscp.exe") || QFileInfo::exists(candidate)) {
       return candidate;
     }
   }

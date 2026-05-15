@@ -5,7 +5,9 @@ param(
     [string]$ExePath = "",
     [string]$QtBinDir = "",
     [string]$SignTool = "signtool.exe",
-    [string]$CertificateThumbprint = $env:CROSSSCP_SIGN_CERT_THUMBPRINT
+    [string]$CertificateThumbprint = $env:CROSSSCP_SIGN_CERT_THUMBPRINT,
+    [string]$PfxPath = $env:CROSSSCP_WINDOWS_PFX_PATH,
+    [string]$PfxPassword = $env:WINDOWS_CODE_SIGN_CERT_PASSWORD
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,10 +23,12 @@ if (!(Test-Path $ExePath)) {
 $WinDeployQt = if ([string]::IsNullOrWhiteSpace($QtBinDir)) { "windeployqt.exe" } else { Join-Path $QtBinDir "windeployqt.exe" }
 & $WinDeployQt $ExePath
 
-if (![string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
-    & $SignTool sign /sha1 $CertificateThumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $ExePath
-} else {
-    Write-Host "Skipping Authenticode signing: CROSSSCP_SIGN_CERT_THUMBPRINT is not set."
+$SignTargets = @($ExePath)
+$CliPath = Join-Path (Split-Path $ExePath -Parent) "crossscp-cli.exe"
+if (Test-Path $CliPath) {
+    $SignTargets += $CliPath
 }
+
+& "$PSScriptRoot/sign-windows.ps1" -FilePath $SignTargets -SignTool $SignTool -CertificateThumbprint $CertificateThumbprint -PfxPath $PfxPath -PfxPassword $PfxPassword
 
 Write-Host "Windows deployment prepared for $ExePath"

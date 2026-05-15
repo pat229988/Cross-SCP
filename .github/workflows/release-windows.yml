@@ -26,6 +26,29 @@ jobs:
           version: '6.7.*'
       - name: Install NSIS
         run: choco install nsis -y
+      - name: Require signing certificate for tag releases
+        if: ${{ github.ref_type == 'tag' }}
+        shell: pwsh
+        env:
+          WINDOWS_CODE_SIGN_CERT_PFX: ${{ secrets.WINDOWS_CODE_SIGN_CERT_PFX }}
+          WINDOWS_CODE_SIGN_CERT_PASSWORD: ${{ secrets.WINDOWS_CODE_SIGN_CERT_PASSWORD }}
+          CROSSSCP_SIGN_CERT_THUMBPRINT: ${{ secrets.CROSSSCP_SIGN_CERT_THUMBPRINT }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CODE_SIGN_CERT_PFX) -and [string]::IsNullOrWhiteSpace($env:CROSSSCP_SIGN_CERT_THUMBPRINT)) {
+            throw "Tagged Windows releases must be Authenticode signed. Configure WINDOWS_CODE_SIGN_CERT_PFX + WINDOWS_CODE_SIGN_CERT_PASSWORD, or CROSSSCP_SIGN_CERT_THUMBPRINT on a runner with the certificate installed."
+          }
+      - name: Decode Windows signing certificate
+        shell: pwsh
+        env:
+          WINDOWS_CODE_SIGN_CERT_PFX: ${{ secrets.WINDOWS_CODE_SIGN_CERT_PFX }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CODE_SIGN_CERT_PFX)) {
+            Write-Host "Skipping PFX decode: WINDOWS_CODE_SIGN_CERT_PFX is not configured."
+            exit 0
+          }
+          $certPath = Join-Path $env:RUNNER_TEMP "crossscp-signing.pfx"
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CODE_SIGN_CERT_PFX))
+          "CROSSSCP_WINDOWS_PFX_PATH=$certPath" | Out-File -FilePath $env:GITHUB_ENV -Append
       - name: Export release metadata
         shell: bash
         run: scripts/release-metadata.sh windows x64
@@ -37,6 +60,7 @@ jobs:
         shell: pwsh
         env:
           CROSSSCP_SIGN_CERT_THUMBPRINT: ${{ secrets.CROSSSCP_SIGN_CERT_THUMBPRINT }}
+          WINDOWS_CODE_SIGN_CERT_PASSWORD: ${{ secrets.WINDOWS_CODE_SIGN_CERT_PASSWORD }}
         run: scripts/deploy-windows.ps1 -BuildDir build/gui-release -QtBinDir "$env:QT_ROOT_DIR/bin"
       - name: Create portable ZIP
         shell: pwsh
@@ -50,6 +74,12 @@ jobs:
           $deployDir = (Resolve-Path "build/gui-release/apps/crossscp-gui/Release").Path
           $outFile = "$env:GITHUB_WORKSPACE/$env:CROSSSCP_DIST_DIR/$env:CROSSSCP_ARTIFACT_BASE-setup.exe"
           makensis.exe "/DVERSION=$env:CROSSSCP_VERSION" "/DDEPLOY_DIR=$deployDir" "/DOUT_FILE=$outFile" packaging/windows/crossscp.nsi.in
+      - name: Sign setup EXE
+        shell: pwsh
+        env:
+          CROSSSCP_SIGN_CERT_THUMBPRINT: ${{ secrets.CROSSSCP_SIGN_CERT_THUMBPRINT }}
+          WINDOWS_CODE_SIGN_CERT_PASSWORD: ${{ secrets.WINDOWS_CODE_SIGN_CERT_PASSWORD }}
+        run: scripts/sign-windows.ps1 -FilePath "$env:CROSSSCP_DIST_DIR/$env:CROSSSCP_ARTIFACT_BASE-setup.exe"
       - name: Generate checksums
         shell: bash
         run: scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-IDI_ICON1 ICON "../resources/icons/crossscp.ico"
+IDI_ICON1 ICON "../../resources/icons/crossscp.ico"
 
 1 VERSIONINFO
 FILEVERSION 0,1,0,0

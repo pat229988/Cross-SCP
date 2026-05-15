@@ -11,6 +11,7 @@ VOLUME_ICON="${VOLUME_ICON:-apps/crossscp-gui/resources/icons/CrossSCP.icns}"
 QT_BIN_DIR="${QT_BIN_DIR:-}"
 QT_LIB_DIR="${QT_LIB_DIR:-}"
 SIGN_IDENTITY="${CROSSSCP_SIGN_IDENTITY:-}"
+ENTITLEMENTS="${CROSSSCP_MACOS_ENTITLEMENTS:-packaging/macos/entitlements.plist}"
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "macOS deployment requires Darwin." >&2
@@ -41,7 +42,7 @@ cp "${VOLUME_ICON}" "${APP_PATH}/Contents/Resources/CrossSCP.icns"
 touch "${APP_PATH}"
 
 if [[ -n "${SIGN_IDENTITY}" ]]; then
-  codesign --force --deep --options runtime --timestamp --sign "${SIGN_IDENTITY}" "${APP_PATH}"
+  codesign --force --deep --options runtime --timestamp --entitlements "${ENTITLEMENTS}" --sign "${SIGN_IDENTITY}" "${APP_PATH}"
 else
   echo "CROSSSCP_SIGN_IDENTITY is not set; applying ad-hoc signature for local unsigned testing."
   codesign --force --deep --sign - "${APP_PATH}"
@@ -66,6 +67,11 @@ else
   echo "create-dmg is not installed; falling back to CPack DragNDrop output." >&2
   cmake --build "${BUILD_DIR}" --target package --config Release
   cp "${BUILD_DIR}"/*.dmg "${DMG_PATH}"
+fi
+
+if [[ -n "${SIGN_IDENTITY}" ]]; then
+  codesign --force --timestamp --sign "${SIGN_IDENTITY}" "${DMG_PATH}"
+  codesign --verify --verbose=2 "${DMG_PATH}"
 fi
 
 shasum -a 256 "${DMG_PATH}" > "${DMG_PATH}.sha256"

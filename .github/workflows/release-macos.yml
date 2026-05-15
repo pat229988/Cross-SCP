@@ -26,6 +26,27 @@ jobs:
           version: '6.7.*'
       - name: Install DMG helper
         run: brew install create-dmg
+      - name: Require signing secrets for tag releases
+        if: ${{ github.ref_type == 'tag' }}
+        env:
+          CROSSSCP_SIGN_IDENTITY: ${{ secrets.CROSSSCP_SIGN_IDENTITY }}
+          MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          missing=0
+          for name in CROSSSCP_SIGN_IDENTITY MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing required macOS signing/notarization secret: ${name}" >&2
+              missing=1
+            fi
+          done
+          if [[ "${missing}" -ne 0 ]]; then
+            echo "Tagged macOS releases must be Developer ID signed and notarized to avoid Gatekeeper blocking users." >&2
+            exit 1
+          fi
       - name: Import signing certificate
         env:
           MACOS_CERTIFICATE_P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
@@ -42,6 +63,7 @@ jobs:
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$MACOS_CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
           security import "$CERTIFICATE_PATH" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$MACOS_CERTIFICATE_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychain -d user -s "$KEYCHAIN_PATH"
       - name: Export release metadata
         run: scripts/release-metadata.sh macos arm64
@@ -65,6 +87,10 @@ jobs:
             exit 0
           fi
           bash scripts/notarize-macos.sh "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg"
+          scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg"
+      - name: Validate Gatekeeper acceptance for signed releases
+        if: ${{ github.ref_type == 'tag' }}
+        run: spctl -a -vv -t open --context context:primary-signature "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg"
       - name: Verify DMG checksum
         run: shasum -a 256 -c "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg.sha256"
       - name: Upload workflow artifact

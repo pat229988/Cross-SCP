@@ -2,9 +2,11 @@
 
 set(CROSSSCP_GUI_VERSION ${PROJECT_VERSION})
 
-qt_policy(SET QTP0001 NEW)
-if(Qt6_VERSION VERSION_GREATER_EQUAL 6.8.0)
-  qt_policy(SET QTP0004 NEW)
+if(COMMAND qt_policy)
+  qt_policy(SET QTP0001 NEW)
+  if(Qt6_VERSION VERSION_GREATER_EQUAL 6.8.0)
+    qt_policy(SET QTP0004 NEW)
+  endif()
 endif()
 
 qt_add_executable(crossscp-gui
@@ -55,6 +57,8 @@ if(CROSSSCP_GUI_BUILD_RUST_CLI)
     set(CROSSSCP_CARGO_PROFILE_ARGS "--release")
     set(CROSSSCP_CARGO_TARGET_DIR "release")
   endif()
+  set(CROSSSCP_CARGO_BIN_NAME "crossscp${CMAKE_EXECUTABLE_SUFFIX}")
+  set(CROSSSCP_GUI_CLI_FILE_NAME "crossscp-cli${CMAKE_EXECUTABLE_SUFFIX}")
   if(CROSSSCP_GUI_ENABLE_SFTP)
     set(CROSSSCP_CARGO_FEATURE_ARGS "--features" "ssh2-backend")
   endif()
@@ -73,8 +77,8 @@ if(CROSSSCP_GUI_BUILD_RUST_CLI)
   endif()
   add_custom_command(TARGET crossscp-gui POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "${CMAKE_SOURCE_DIR}/target/${CROSSSCP_CARGO_TARGET_DIR}/crossscp"
-      "${CROSSSCP_GUI_CLI_DEST}/crossscp-cli"
+      "${CMAKE_SOURCE_DIR}/target/${CROSSSCP_CARGO_TARGET_DIR}/${CROSSSCP_CARGO_BIN_NAME}"
+      "${CROSSSCP_GUI_CLI_DEST}/${CROSSSCP_GUI_CLI_FILE_NAME}"
     COMMENT "Staging Rust CLI bridge beside the Qt GUI without colliding with CrossSCP.app executable"
     VERBATIM
   )
@@ -97,6 +101,12 @@ if(APPLE)
     MACOSX_RPATH TRUE
     BUILD_RPATH "${CROSSSCP_QT_LIB_DIR}"
     INSTALL_RPATH "@executable_path/../Frameworks"
+  )
+endif()
+
+if(UNIX AND NOT APPLE)
+  set_target_properties(crossscp-gui PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
   )
 endif()
 

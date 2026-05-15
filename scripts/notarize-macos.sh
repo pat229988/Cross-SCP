@@ -10,9 +10,20 @@ if [[ -z "${DMG_PATH}" ]]; then
   exit 2
 fi
 
-: "${CROSSSCP_NOTARY_PROFILE:?Set CROSSSCP_NOTARY_PROFILE for xcrun notarytool}"
+if [[ -n "${CROSSSCP_NOTARY_PROFILE:-}" ]]; then
+  xcrun notarytool submit "${DMG_PATH}" --keychain-profile "${CROSSSCP_NOTARY_PROFILE}" --wait
+else
+  : "${APPLE_ID:?Set APPLE_ID or CROSSSCP_NOTARY_PROFILE for xcrun notarytool}"
+  : "${APPLE_TEAM_ID:?Set APPLE_TEAM_ID or CROSSSCP_NOTARY_PROFILE for xcrun notarytool}"
+  : "${APPLE_APP_SPECIFIC_PASSWORD:?Set APPLE_APP_SPECIFIC_PASSWORD or CROSSSCP_NOTARY_PROFILE for xcrun notarytool}"
+  xcrun notarytool submit "${DMG_PATH}" \
+    --apple-id "${APPLE_ID}" \
+    --team-id "${APPLE_TEAM_ID}" \
+    --password "${APPLE_APP_SPECIFIC_PASSWORD}" \
+    --wait
+fi
 
-xcrun notarytool submit "${DMG_PATH}" --keychain-profile "${CROSSSCP_NOTARY_PROFILE}" --wait
 xcrun stapler staple "${DMG_PATH}"
+xcrun stapler validate "${DMG_PATH}"
 
 echo "Notarized and stapled ${DMG_PATH}"

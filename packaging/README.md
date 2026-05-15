@@ -37,7 +37,7 @@ cmake --build build/gui --target package --config Release
 ## Release blockers
 
 - Real Qt deployment tooling must be added per platform (`macdeployqt`, `windeployqt`).
-- Code signing/notarization is not configured.
+- Public trust requires signing/notarization secrets; see `packaging/SIGNING.md`.
 - Windows installer technology is not finalized (WiX/MSIX/NSIS pending).
 - License inventory must be reviewed with `cargo deny` or equivalent.
 - Live SFTP integration tests are still gated/manual.
@@ -46,6 +46,7 @@ See also:
 
 - `DOC/V1_RELEASE_PLAN.md` for the release acceptance criteria and implementation phase plan.
 - `DOC/PLATFORM_TOOL_CHECKLIST.md` for platform-specific build, deployment, signing, and packaging tools.
+- `packaging/SIGNING.md` for the platform trust model and required release secrets.
 
 ## Helper scripts
 
