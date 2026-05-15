@@ -3,7 +3,9 @@
 set(CROSSSCP_GUI_VERSION ${PROJECT_VERSION})
 
 qt_policy(SET QTP0001 NEW)
-qt_policy(SET QTP0004 NEW)
+if(Qt6_VERSION VERSION_GREATER_EQUAL 6.8.0)
+  qt_policy(SET QTP0004 NEW)
+endif()
 
 qt_add_executable(crossscp-gui
   cpp/main.cpp
