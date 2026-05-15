@@ -1,0 +1,24 @@
+name: GUI Package Skeleton
+
+on:
+  workflow_dispatch:
+
+jobs:
+  package-gui:
+    name: Package GUI skeleton
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+      - name: Configure GUI
+        run: cmake -S . -B build/gui -DCROSSSCP_BUILD_GUI=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build GUI
+        run: cmake --build build/gui --config Release
+      - name: Package GUI
+        run: cmake --build build/gui --target package --config Release

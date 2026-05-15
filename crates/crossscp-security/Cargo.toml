@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+[package]
+name = "crossscp-security"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "crossscp_security"
+path = "src/lib.rs"
+
+[dependencies]
+zeroize = { version = "1.8.2", features = ["derive"] }
+
+[lints]
+workspace = true

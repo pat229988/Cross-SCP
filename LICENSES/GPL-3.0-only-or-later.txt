@@ -1,0 +1,6 @@
+GNU General Public License v3.0 only/or later reference
+
+This file exists to reserve the documented location for any GPL-covered legacy SFTP client material that is intentionally copied or adapted.
+CrossSCP production code should not copy legacy SFTP client material by default.
+
+Before first public release that includes GPL-covered material, replace this note with the canonical GPL-3.0 text and document all carryover in NOTICE.md.
