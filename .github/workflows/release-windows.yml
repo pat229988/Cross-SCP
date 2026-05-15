@@ -73,9 +73,10 @@ jobs:
         run: |
           $deployDir = (Resolve-Path "build/gui-release/apps/crossscp-gui/Release").Path
           $outFile = "$env:GITHUB_WORKSPACE/$env:CROSSSCP_DIST_DIR/$env:CROSSSCP_ARTIFACT_BASE-setup.exe"
+          $licenseFile = "$env:GITHUB_WORKSPACE/LICENSE"
           $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
           if (!(Test-Path $makensis)) { $makensis = "makensis.exe" }
-          & $makensis "/DVERSION=$env:CROSSSCP_VERSION" "/DDEPLOY_DIR=$deployDir" "/DOUT_FILE=$outFile" packaging/windows/crossscp.nsi.in
+          & $makensis "/DVERSION=$env:CROSSSCP_VERSION" "/DDEPLOY_DIR=$deployDir" "/DOUT_FILE=$outFile" "/DLICENSE_FILE=$licenseFile" packaging/windows/crossscp.nsi.in
       - name: Sign setup EXE
         shell: pwsh
         env:
