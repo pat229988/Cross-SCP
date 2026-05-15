@@ -42,7 +42,7 @@ jobs:
           BUILD_DIR=build/gui-release \
           DIST_DIR="$CROSSSCP_DIST_DIR" \
           DMG_PATH="$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg" \
-          QT_BIN_DIR="$Qt6_DIR/../../../bin" \
+          QT_BIN_DIR="$QT_ROOT_DIR/bin" \
           bash scripts/package-gui.sh
       - name: Upload macOS package
         uses: actions/upload-artifact@v4
@@ -72,7 +72,7 @@ jobs:
         run: cmake --build build/gui-release --config Release
       - name: Deploy Qt runtime
         shell: pwsh
-        run: scripts/deploy-windows.ps1 -BuildDir build/gui-release -QtBinDir "$env:Qt6_DIR/../../../bin"
+        run: scripts/deploy-windows.ps1 -BuildDir build/gui-release -QtBinDir "$env:QT_ROOT_DIR/bin"
       - name: Create portable ZIP
         shell: pwsh
         run: |

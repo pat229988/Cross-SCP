@@ -52,7 +52,7 @@ jobs:
           BUILD_DIR=build/gui-release \
           DIST_DIR="$CROSSSCP_DIST_DIR" \
           DMG_PATH="$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg" \
-          QT_BIN_DIR="$Qt6_DIR/../../../bin" \
+          QT_BIN_DIR="$QT_ROOT_DIR/bin" \
           bash scripts/package-gui.sh
       - name: Notarize DMG when credentials are available
         env:

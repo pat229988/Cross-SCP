@@ -37,7 +37,7 @@ jobs:
         shell: pwsh
         env:
           CROSSSCP_SIGN_CERT_THUMBPRINT: ${{ secrets.CROSSSCP_SIGN_CERT_THUMBPRINT }}
-        run: scripts/deploy-windows.ps1 -BuildDir build/gui-release -QtBinDir "$env:Qt6_DIR/../../../bin"
+        run: scripts/deploy-windows.ps1 -BuildDir build/gui-release -QtBinDir "$env:QT_ROOT_DIR/bin"
       - name: Create portable ZIP
         shell: pwsh
         run: |
