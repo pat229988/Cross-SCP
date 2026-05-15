@@ -1,13 +1,9 @@
 name: Deploy GitHub Pages
 
 on:
-  push:
-    branches:
-      - dev
-      - main
-    paths:
-      - docs/**
-      - .github/workflows/pages.yml
+  # Enable push deployment after GitHub Pages is available for the repository.
+  # The current repository plan rejected Pages enablement via the API, so this
+  # stays manual to avoid failing every dev push until Pages is enabled.
   workflow_dispatch:
 
 permissions:
