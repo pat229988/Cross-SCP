@@ -72,7 +72,27 @@ jobs:
         run: cmake --build build/gui-release --config Release
       - name: Deploy Qt runtime
         shell: pwsh
-        run: scripts/deploy-windows.ps1 -BuildDir build/gui-release -QtBinDir "$env:QT_ROOT_DIR/bin"
+        run: scripts/deploy-windows.ps1 -BuildDir build/gui-release -QtBinDir "$env:QT_ROOT_DIR/bin" -QmlDir apps/crossscp-gui/qml
+      - name: Validate bundled Windows runtime
+        shell: pwsh
+        run: |
+          $deployDir = "build/gui-release/apps/crossscp-gui/Release"
+          $required = @(
+            "CrossSCP.exe",
+            "crossscp-cli.exe",
+            "Qt6Core.dll",
+            "Qt6Gui.dll",
+            "Qt6Qml.dll",
+            "Qt6Quick.dll",
+            "vcruntime140.dll",
+            "msvcp140.dll",
+            "platforms/qwindows.dll"
+          )
+          foreach ($file in $required) {
+            $path = Join-Path $deployDir $file
+            if (!(Test-Path $path)) { throw "Missing runtime payload file: $file" }
+          }
+          Get-ChildItem $deployDir -Recurse | Select-Object FullName, Length
       - name: Create portable ZIP
         shell: pwsh
         run: |
@@ -110,7 +130,7 @@ jobs:
       - name: Install Qt packaging dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build pkg-config libssl-dev zlib1g-dev qt6-base-dev qt6-declarative-dev qt6-tools-dev qt6-tools-dev-tools libgl1-mesa-dev libxkbcommon-dev
+          sudo apt-get install -y ninja-build dpkg-dev pkg-config libssl-dev zlib1g-dev qt6-base-dev qt6-declarative-dev qt6-tools-dev qt6-tools-dev-tools libgl1-mesa-dev libxkbcommon-dev
       - name: Export release metadata
         run: scripts/release-metadata.sh ubuntu amd64
       - name: Configure GUI DEB package
@@ -121,6 +141,12 @@ jobs:
         run: |
           mkdir -p "$CROSSSCP_DIST_DIR"
           find build/ubuntu-deb -maxdepth 1 -type f -name '*.deb' -exec cp {} "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.deb" \;
+          DEB_PATH="$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.deb"
+          test -f "$DEB_PATH"
+          dpkg-deb -I "$DEB_PATH"
+          dpkg-deb -c "$DEB_PATH"
+          dpkg-deb -c "$DEB_PATH" | grep -q './usr/bin/CrossSCP'
+          dpkg-deb -c "$DEB_PATH" | grep -q './usr/bin/crossscp-cli'
           scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
       - name: Upload Ubuntu DEB package
         uses: actions/upload-artifact@v4
@@ -128,6 +154,42 @@ jobs:
           name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
           path: |
             ${{ env.CROSSSCP_DIST_DIR }}/*.deb
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+
+  fedora-rpm:
+    name: Fedora RPM smoke test
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == 'linux' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install RPM packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build rpm pkg-config libssl-dev zlib1g-dev qt6-base-dev qt6-declarative-dev qt6-tools-dev qt6-tools-dev-tools libgl1-mesa-dev libxkbcommon-dev
+      - name: Export release metadata
+        run: scripts/release-metadata.sh fedora x86_64
+      - name: Configure GUI RPM package
+        run: cmake -S . -B build/fedora-rpm -G Ninja -DCROSSSCP_BUILD_GUI=ON -DCROSSSCP_PACKAGE_RPM=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build RPM package
+        run: cmake --build build/fedora-rpm --target package --config Release
+      - name: Collect RPM package
+        run: |
+          mkdir -p "$CROSSSCP_DIST_DIR"
+          find build/fedora-rpm -maxdepth 1 -type f -name '*.rpm' -exec cp {} "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.rpm" \;
+          RPM_PATH="$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.rpm"
+          test -f "$RPM_PATH"
+          rpm -qip "$RPM_PATH"
+          rpm -qlp "$RPM_PATH"
+          rpm -qlp "$RPM_PATH" | grep -q '/usr/bin/CrossSCP'
+          rpm -qlp "$RPM_PATH" | grep -q '/usr/bin/crossscp-cli'
+          scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
+      - name: Upload Fedora RPM package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
+          path: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.rpm
             ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
 
   flatpak:
@@ -147,8 +209,11 @@ jobs:
       - name: Build Flatpak bundle
         run: |
           mkdir -p "$CROSSSCP_DIST_DIR"
-          flatpak-builder --force-clean --repo=build/flatpak-repo build/flatpak packaging/linux/flatpak/org.crossscp.CrossSCP.yml
-          flatpak build-bundle build/flatpak-repo "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.flatpak" org.crossscp.CrossSCP
+          flatpak-builder --force-clean --install-deps-from=flathub --repo=build/flatpak-repo build/flatpak packaging/linux/flatpak/org.crossscp.CrossSCP.yml
+          test -x build/flatpak/files/bin/CrossSCP
+          test -x build/flatpak/files/bin/crossscp-cli
+          flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo build/flatpak-repo "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.flatpak" org.crossscp.CrossSCP
+          test -f "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.flatpak"
           scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
       - name: Upload Flatpak bundle
         uses: actions/upload-artifact@v4

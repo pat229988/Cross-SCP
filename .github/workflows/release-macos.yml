@@ -26,7 +26,7 @@ jobs:
           version: '6.7.*'
       - name: Install DMG helper
         run: brew install create-dmg
-      - name: Require signing secrets for tag releases
+      - name: Report macOS signing status
         if: ${{ github.ref_type == 'tag' }}
         env:
           CROSSSCP_SIGN_IDENTITY: ${{ secrets.CROSSSCP_SIGN_IDENTITY }}
@@ -39,13 +39,15 @@ jobs:
           missing=0
           for name in CROSSSCP_SIGN_IDENTITY MACOS_CERTIFICATE_P12 MACOS_CERTIFICATE_PASSWORD APPLE_ID APPLE_TEAM_ID APPLE_APP_SPECIFIC_PASSWORD; do
             if [[ -z "${!name}" ]]; then
-              echo "Missing required macOS signing/notarization secret: ${name}" >&2
+              echo "Missing optional macOS signing/notarization secret: ${name}" >&2
               missing=1
             fi
           done
           if [[ "${missing}" -ne 0 ]]; then
-            echo "Tagged macOS releases must be Developer ID signed and notarized to avoid Gatekeeper blocking users." >&2
-            exit 1
+            echo "This tagged macOS build will be unsigned/not notarized. Browser downloads may be blocked by Gatekeeper." >&2
+            echo "Use scripts/install-macos.sh for tester installs, or configure Developer ID notarization secrets." >&2
+          else
+            echo "macOS signing/notarization secrets are configured."
           fi
       - name: Import signing certificate
         env:
@@ -90,15 +92,30 @@ jobs:
           scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg"
       - name: Validate Gatekeeper acceptance for signed releases
         if: ${{ github.ref_type == 'tag' }}
-        run: spctl -a -vv -t open --context context:primary-signature "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg"
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          if [[ -z "$APPLE_ID" || -z "$APPLE_TEAM_ID" || -z "$APPLE_APP_SPECIFIC_PASSWORD" ]]; then
+            echo "Skipping Gatekeeper validation: DMG was not notarized."
+            exit 0
+          fi
+          spctl -a -vv -t open --context context:primary-signature "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg"
       - name: Verify DMG checksum
         run: shasum -a 256 -c "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg.sha256"
+      - name: Prepare tester installer script
+        run: |
+          cp scripts/install-macos.sh "$CROSSSCP_DIST_DIR/install-macos.sh"
+          chmod +x "$CROSSSCP_DIST_DIR/install-macos.sh"
+          scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR/install-macos.sh"
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
           path: |
             ${{ env.CROSSSCP_DIST_DIR }}/*.dmg
+            ${{ env.CROSSSCP_DIST_DIR }}/install-macos.sh
             ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
       - name: Upload to GitHub Release
         if: ${{ github.ref_type == 'tag' }}
@@ -107,4 +124,5 @@ jobs:
           draft: true
           files: |
             ${{ env.CROSSSCP_DIST_DIR }}/*.dmg
+            ${{ env.CROSSSCP_DIST_DIR }}/install-macos.sh
             ${{ env.CROSSSCP_DIST_DIR }}/*.sha256

@@ -3,6 +3,15 @@ runtime: org.kde.Platform
 runtime-version: '6.7'
 sdk: org.kde.Sdk
 command: CrossSCP
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  build-args:
+    - --share=network
+  env:
+    CARGO_HOME: /run/build/crossscp/cargo
+    CARGO_NET_GIT_FETCH_WITH_CLI: 'true'
 finish-args:
   - --share=network
   - --socket=wayland
@@ -15,7 +24,8 @@ modules:
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
       - -DCROSSSCP_BUILD_GUI=ON
-      - -DCROSSSCP_GUI_BUILD_RUST_CLI=OFF
+      - -DCROSSSCP_GUI_BUILD_RUST_CLI=ON
+      - -DCROSSSCP_GUI_ENABLE_SFTP=ON
     sources:
       - type: dir
         path: ../../..

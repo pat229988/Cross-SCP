@@ -11,7 +11,8 @@ CrossSCP is moving out of core MVP scaffolding into productization. The current 
 - Product icons copied into `apps/crossscp-gui/resources/icons/`.
 - macOS app bundle metadata skeleton.
 - Windows icon/version resource skeleton.
-- CPack archive/DMG skeleton.
+- CPack archive/DMG/DEB/RPM packaging.
+- Flatpak bundle manifest for Linux testers.
 
 ## Default validation
 
@@ -36,9 +37,8 @@ cmake --build build/gui --target package --config Release
 
 ## Release blockers
 
-- Real Qt deployment tooling must be added per platform (`macdeployqt`, `windeployqt`).
+- Linux repository distribution is not finalized (APT/PPA, COPR/RPM repo, Flathub).
 - Public trust requires signing/notarization secrets; see `packaging/SIGNING.md`.
-- Windows installer technology is not finalized (WiX/MSIX/NSIS pending).
 - License inventory must be reviewed with `cargo deny` or equivalent.
 - Live SFTP integration tests are still gated/manual.
 

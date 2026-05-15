@@ -32,9 +32,20 @@ Export a certificate for GitHub Actions:
 base64 -i DeveloperIDApplication.p12 | pbcopy
 ```
 
-Tagged macOS release workflows intentionally fail when these secrets are absent,
-because uploading an unsigned DMG creates the exact Gatekeeper block users saw.
-Manual/dev builds may still be unsigned for smoke testing.
+Tagged macOS release workflows report whether these secrets are present. When
+they are absent, the workflow can still upload unsigned beta artifacts, but those
+browser-downloaded artifacts may be blocked by Gatekeeper.
+
+For a no-fee beta/tester flow, use the terminal installer instead of browser
+downloads:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/install-macos.sh | bash
+```
+
+This installer downloads with `curl`, copies the app to `/Applications`, and
+removes `com.apple.quarantine`. It is a tester workaround, not equivalent to
+Apple notarization.
 
 ## Windows setup EXE trust
 
@@ -65,6 +76,15 @@ A standalone `.deb` can include checksums and optional detached GPG signatures,
 but Ubuntu does not treat random downloaded `.deb` files as trusted just because
 they are signed. For broad trust, publish through a signed APT repository or a
 Launchpad PPA.
+
+The `.deb` artifact is for Debian/Ubuntu-based systems. Fedora users should use
+the RPM artifact or the Flatpak bundle instead.
+
+## Fedora RPM trust
+
+A standalone `.rpm` is useful for Fedora beta testing, but it is not equivalent
+to a signed repository. For broad trust, publish through a signed RPM repository
+or COPR and sign RPM metadata/artifacts.
 
 Optional secrets for detached artifact signatures:
 

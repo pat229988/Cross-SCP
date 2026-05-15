@@ -10,7 +10,7 @@ CrossSCP is a cross-platform file transfer client built with Rust and Qt. It pro
 - Multiple file/folder selection for batch transfers
 - Create and delete local or remote folders/files
 - Session-only transfer queue and activity logs
-- macOS `.app` and `.dmg` packaging
+- macOS `.app`/`.dmg`, Windows installer/portable ZIP, and Linux DEB/RPM/Flatpak packaging
 
 ## Creator
 
@@ -21,6 +21,20 @@ Created by **Pratik Patel**.
 - Website: [CrossSCP GitHub Pages](https://pat229988.github.io/Cross-SCP/)
 
 ## macOS Build
+
+### Tester install without Apple Developer notarization
+
+For macOS testers, use the terminal installer so the app can be copied and the
+browser quarantine attribute can be removed automatically:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/install-macos.sh | bash
+```
+
+See [`docs/INSTALLATION.md`](docs/INSTALLATION.md) for macOS Gatekeeper details,
+Windows/Linux install notes, and release trust expectations.
+
+### Local package build
 
 The canonical packaged artifact is:
 
@@ -36,4 +50,6 @@ bash scripts/package-gui.sh
 
 ## GitHub Pages
 
-A simple static landing page is available under `docs/index.html`. Enable GitHub Pages for the repository and select the `docs/` folder as the Pages source.
+A simple static landing page is available under `docs/index.html`. GitHub Pages
+deployment is optional and may depend on the repository/account plan; packaging
+and release testing do not require it.

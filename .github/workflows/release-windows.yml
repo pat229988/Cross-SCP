@@ -26,7 +26,7 @@ jobs:
           version: '6.7.*'
       - name: Install NSIS
         run: choco install nsis -y
-      - name: Require signing certificate for tag releases
+      - name: Report Windows signing status
         if: ${{ github.ref_type == 'tag' }}
         shell: pwsh
         env:
@@ -35,7 +35,9 @@ jobs:
           CROSSSCP_SIGN_CERT_THUMBPRINT: ${{ secrets.CROSSSCP_SIGN_CERT_THUMBPRINT }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WINDOWS_CODE_SIGN_CERT_PFX) -and [string]::IsNullOrWhiteSpace($env:CROSSSCP_SIGN_CERT_THUMBPRINT)) {
-            throw "Tagged Windows releases must be Authenticode signed. Configure WINDOWS_CODE_SIGN_CERT_PFX + WINDOWS_CODE_SIGN_CERT_PASSWORD, or CROSSSCP_SIGN_CERT_THUMBPRINT on a runner with the certificate installed."
+            Write-Warning "This tagged Windows build will be unsigned. SmartScreen may warn users. Configure WINDOWS_CODE_SIGN_CERT_PFX + WINDOWS_CODE_SIGN_CERT_PASSWORD, or CROSSSCP_SIGN_CERT_THUMBPRINT, for trusted public installers."
+          } else {
+            Write-Host "Windows signing credentials are configured."
           }
       - name: Decode Windows signing certificate
         shell: pwsh
@@ -61,7 +63,27 @@ jobs:
         env:
           CROSSSCP_SIGN_CERT_THUMBPRINT: ${{ secrets.CROSSSCP_SIGN_CERT_THUMBPRINT }}
           WINDOWS_CODE_SIGN_CERT_PASSWORD: ${{ secrets.WINDOWS_CODE_SIGN_CERT_PASSWORD }}
-        run: scripts/deploy-windows.ps1 -BuildDir build/gui-release -QtBinDir "$env:QT_ROOT_DIR/bin"
+        run: scripts/deploy-windows.ps1 -BuildDir build/gui-release -QtBinDir "$env:QT_ROOT_DIR/bin" -QmlDir apps/crossscp-gui/qml
+      - name: Validate bundled Windows runtime
+        shell: pwsh
+        run: |
+          $deployDir = "build/gui-release/apps/crossscp-gui/Release"
+          $required = @(
+            "CrossSCP.exe",
+            "crossscp-cli.exe",
+            "Qt6Core.dll",
+            "Qt6Gui.dll",
+            "Qt6Qml.dll",
+            "Qt6Quick.dll",
+            "vcruntime140.dll",
+            "msvcp140.dll",
+            "platforms/qwindows.dll"
+          )
+          foreach ($file in $required) {
+            $path = Join-Path $deployDir $file
+            if (!(Test-Path $path)) { throw "Missing runtime payload file: $file" }
+          }
+          Get-ChildItem $deployDir -Recurse | Select-Object FullName, Length
       - name: Create portable ZIP
         shell: pwsh
         run: |

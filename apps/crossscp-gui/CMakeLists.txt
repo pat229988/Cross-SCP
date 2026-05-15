@@ -82,6 +82,13 @@ if(CROSSSCP_GUI_BUILD_RUST_CLI)
     COMMENT "Staging Rust CLI bridge beside the Qt GUI without colliding with CrossSCP.app executable"
     VERBATIM
   )
+
+  if(UNIX AND NOT APPLE)
+    install(PROGRAMS "${CMAKE_SOURCE_DIR}/target/${CROSSSCP_CARGO_TARGET_DIR}/${CROSSSCP_CARGO_BIN_NAME}"
+      DESTINATION bin
+      RENAME "${CROSSSCP_GUI_CLI_FILE_NAME}"
+    )
+  endif()
 endif()
 
 set_target_properties(crossscp-gui PROPERTIES
