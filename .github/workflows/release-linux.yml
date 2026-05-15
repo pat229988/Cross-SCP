@@ -124,12 +124,13 @@ jobs:
           sudo apt-get install -y flatpak flatpak-builder appstream
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
           sudo flatpak install -y flathub org.kde.Platform//6.7 org.kde.Sdk//6.7
+          sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.rust-stable//23.08
       - name: Export release metadata
         run: CROSSSCP_ARTIFACT_OS=linux scripts/release-metadata.sh flatpak x86_64
       - name: Build Flatpak bundle
         run: |
           mkdir -p "$CROSSSCP_DIST_DIR"
-          flatpak-builder --force-clean --install-deps-from=flathub --repo=build/flatpak-repo build/flatpak packaging/linux/flatpak/org.crossscp.CrossSCP.yml
+          flatpak-builder --force-clean --repo=build/flatpak-repo build/flatpak packaging/linux/flatpak/org.crossscp.CrossSCP.yml
           test -x build/flatpak/files/bin/CrossSCP
           test -x build/flatpak/files/bin/crossscp-cli
           flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo build/flatpak-repo "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.flatpak" org.crossscp.CrossSCP
