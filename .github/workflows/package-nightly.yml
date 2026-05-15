@@ -32,7 +32,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == 'macos' }}
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.*'
@@ -48,7 +48,7 @@ jobs:
           QT_BIN_DIR="$QT_ROOT_DIR/bin" \
           bash scripts/package-gui.sh
       - name: Upload macOS package
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
           path: |
@@ -60,7 +60,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == 'windows' }}
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.*'
@@ -115,7 +115,7 @@ jobs:
         shell: bash
         run: scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
       - name: Upload Windows package
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
           path: |
@@ -128,7 +128,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == 'linux' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Install Qt packaging dependencies
         run: |
@@ -152,7 +152,7 @@ jobs:
           dpkg-deb -c "$DEB_PATH" | grep -q './usr/bin/crossscp-cli'
           scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
       - name: Upload Ubuntu DEB package
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
           path: |
@@ -164,7 +164,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == 'linux' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Install RPM packaging dependencies
         run: |
@@ -188,7 +188,7 @@ jobs:
           rpm -qlp "$RPM_PATH" | grep -q '/usr/bin/crossscp-cli'
           scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
       - name: Upload Fedora RPM package
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
           path: |
@@ -200,7 +200,7 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == 'linux' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Install Flatpak tooling
         run: |
           sudo apt-get update
@@ -220,7 +220,7 @@ jobs:
           test -f "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.flatpak"
           scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
       - name: Upload Flatpak bundle
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
           path: |

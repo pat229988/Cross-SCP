@@ -23,7 +23,7 @@ jobs:
     name: Build Windows setup EXE and portable ZIP
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - uses: jurplel/install-qt-action@v4
         with:
           version: '6.7.*'
@@ -112,7 +112,7 @@ jobs:
         shell: bash
         run: scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
       - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
           path: |
