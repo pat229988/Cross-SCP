@@ -43,7 +43,7 @@ jobs:
           DIST_DIR="$CROSSSCP_DIST_DIR" \
           DMG_PATH="$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg" \
           QT_BIN_DIR="$Qt6_DIR/../../../bin" \
-          scripts/package-gui.sh
+          bash scripts/package-gui.sh
       - name: Upload macOS package
         uses: actions/upload-artifact@v4
         with:

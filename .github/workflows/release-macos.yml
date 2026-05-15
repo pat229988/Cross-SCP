@@ -53,7 +53,7 @@ jobs:
           DIST_DIR="$CROSSSCP_DIST_DIR" \
           DMG_PATH="$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg" \
           QT_BIN_DIR="$Qt6_DIR/../../../bin" \
-          scripts/package-gui.sh
+          bash scripts/package-gui.sh
       - name: Notarize DMG when credentials are available
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -64,7 +64,7 @@ jobs:
             echo "Skipping notarization: Apple notarization secrets are not configured."
             exit 0
           fi
-          scripts/notarize-macos.sh "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg"
+          bash scripts/notarize-macos.sh "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg"
       - name: Verify DMG checksum
         run: shasum -a 256 -c "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg.sha256"
       - name: Upload workflow artifact
