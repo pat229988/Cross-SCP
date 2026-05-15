@@ -3,6 +3,7 @@
 #include <QGuiApplication>
 #include <QIcon>
 #include <QQmlApplicationEngine>
+#include <QUrl>
 
 #include "AppBackend.h"
 #include "LocalFileModel.h"
@@ -23,7 +24,11 @@ int main(int argc, char *argv[]) {
                                       "TransferQueueModel");
 
   QQmlApplicationEngine engine;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
   engine.loadFromModule("CrossSCP", "Main");
+#else
+  engine.load(QUrl(QStringLiteral("qrc:/qt/qml/CrossSCP/qml/Main.qml")));
+#endif
   if (engine.rootObjects().isEmpty()) {
     return 1;
   }

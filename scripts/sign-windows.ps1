@@ -26,7 +26,7 @@ function Invoke-SignTool {
     } elseif (![string]::IsNullOrWhiteSpace($CertificateThumbprint)) {
         & $SignTool sign /sha1 $CertificateThumbprint /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $Path
     } else {
-        Write-Host "Skipping Authenticode signing for $Path: no Windows signing certificate is configured."
+        Write-Host "Skipping Authenticode signing for ${Path}: no Windows signing certificate is configured."
         return
     }
 
