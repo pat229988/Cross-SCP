@@ -384,7 +384,7 @@ ApplicationWindow {
                 MouseArea {
                     anchors.fill: parent
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: Qt.openUrlExternally("https://github.com/pat229988/Cross-SCP.git")
+                    onClicked: Qt.openUrlExternally("https://pat229988.github.io/Cross-SCP/")
                 }
             }
 
@@ -758,8 +758,8 @@ ApplicationWindow {
             }
                 Button {
                     Layout.alignment: Qt.AlignHCenter
-                    text: qsTr("Open GitHub Repository")
-                    onClicked: Qt.openUrlExternally("https://github.com/pat229988/Cross-SCP.git")
+                    text: qsTr("Open CrossSCP Website")
+                    onClicked: Qt.openUrlExternally("https://pat229988.github.io/Cross-SCP/")
                 }
                 Label {
                     Layout.fillWidth: true

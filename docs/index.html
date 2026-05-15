@@ -7,6 +7,7 @@
   <meta property="og:title" content="CrossSCP - Cross-platform SFTP file transfer">
   <meta property="og:description" content="A Rust + Qt desktop SFTP client with dual-pane browsing, password/key authentication, recursive transfers, and public release packaging in progress.">
   <meta property="og:type" content="website">
+  <meta property="og:url" content="https://pat229988.github.io/Cross-SCP/">
   <title>CrossSCP | Cross-platform SFTP file transfer</title>
   <style>
     :root {
@@ -199,14 +200,14 @@
       <section id="downloads" aria-labelledby="downloads-title">
         <div class="section-head">
           <h2 id="downloads-title">Distribution status</h2>
-          <p>macOS packaging is available first. Windows and Linux packaging automation is planned for MSI, setup EXE, Flatpak, and Ubuntu packages.</p>
+          <p>Beta packaging automation is available from the dev branch and tagged releases. Test artifacts are attached to workflow runs, while tagged releases publish draft GitHub Release assets.</p>
         </div>
         <div class="status-grid">
-          <article class="status-card"><span class="badge ready">Available</span><h3>macOS DMG</h3><p>Packaged DMG path exists for Apple Silicon builds.</p></article>
-          <article class="status-card"><span class="badge planned">Planned</span><h3>Windows MSI</h3><p>Installer automation will use WiX after Qt deployment is finalized.</p></article>
-          <article class="status-card"><span class="badge planned">Planned</span><h3>Windows EXE</h3><p>Setup EXE and optional portable ZIP are planned for public releases.</p></article>
-          <article class="status-card"><span class="badge planned">Planned</span><h3>Flatpak</h3><p>Flatpak packaging is planned for self-contained Linux distribution.</p></article>
-          <article class="status-card"><span class="badge planned">Planned</span><h3>Ubuntu DEB</h3><p>Ubuntu `.deb` packaging is planned after Linux desktop metadata is added.</p></article>
+          <article class="status-card"><span class="badge ready">Beta</span><h3>macOS DMG</h3><p>Apple Silicon DMG automation builds with Qt deployment and checksum generation.</p></article>
+          <article class="status-card"><span class="badge planned">Next</span><h3>Windows MSI</h3><p>WiX MSI packaging remains the next Windows installer milestone.</p></article>
+          <article class="status-card"><span class="badge ready">Beta</span><h3>Windows EXE</h3><p>NSIS setup EXE plus portable ZIP automation is available for test releases.</p></article>
+          <article class="status-card"><span class="badge ready">Beta</span><h3>Flatpak</h3><p>Flatpak bundle automation is available with Linux desktop metadata.</p></article>
+          <article class="status-card"><span class="badge ready">Beta</span><h3>Ubuntu DEB</h3><p>Ubuntu `.deb` automation is available through CPack DEB.</p></article>
         </div>
       </section>
 

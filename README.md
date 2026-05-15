@@ -18,6 +18,7 @@ Created by **Pratik Patel**.
 
 - GitHub: [pat229988](https://github.com/pat229988)
 - Repository: [Cross-SCP](https://github.com/pat229988/Cross-SCP.git)
+- Website: [CrossSCP GitHub Pages](https://pat229988.github.io/Cross-SCP/)
 
 ## macOS Build
 
