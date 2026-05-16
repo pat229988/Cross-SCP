@@ -1,0 +1,228 @@
+name: Package Nightly
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+    inputs:
+      package:
+        description: Package target to build
+        type: choice
+        default: all
+        options:
+          - all
+          - macos
+          - windows
+          - linux
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: package-nightly-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos-dmg:
+    name: macOS unsigned DMG smoke test
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == 'macos' }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+      - name: Install DMG helper
+        run: brew install create-dmg
+      - name: Export release metadata
+        run: scripts/release-metadata.sh macos arm64
+      - name: Build macOS DMG
+        run: |
+          BUILD_DIR=build/gui-release \
+          DIST_DIR="$CROSSSCP_DIST_DIR" \
+          DMG_PATH="$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg" \
+          QT_BIN_DIR="$QT_ROOT_DIR/bin" \
+          bash scripts/package-gui.sh
+      - name: Upload macOS package
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
+          path: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.dmg
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+
+  windows-zip:
+    name: Windows setup EXE and portable ZIP smoke test
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == 'windows' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.7.*'
+      - name: Install NSIS
+        run: choco install nsis -y
+      - name: Export release metadata
+        shell: bash
+        run: scripts/release-metadata.sh windows x64
+      - name: Configure GUI
+        run: cmake -S . -B build/gui-release -DCROSSSCP_BUILD_GUI=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build GUI
+        run: cmake --build build/gui-release --config Release
+      - name: Deploy Qt runtime
+        shell: pwsh
+        run: scripts/deploy-windows.ps1 -BuildDir build/gui-release -QtBinDir "$env:QT_ROOT_DIR/bin" -QmlDir apps/crossscp-gui/qml
+      - name: Validate bundled Windows runtime
+        shell: pwsh
+        run: |
+          $deployDir = "build/gui-release/apps/crossscp-gui/Release"
+          $required = @(
+            "CrossSCP.exe",
+            "crossscp-cli.exe",
+            "Qt6Core.dll",
+            "Qt6Gui.dll",
+            "Qt6Qml.dll",
+            "Qt6Quick.dll",
+            "vcruntime140.dll",
+            "msvcp140.dll",
+            "platforms/qwindows.dll"
+          )
+          foreach ($file in $required) {
+            $path = Join-Path $deployDir $file
+            if (!(Test-Path $path)) { throw "Missing runtime payload file: $file" }
+          }
+          Get-ChildItem $deployDir -Recurse | Select-Object FullName, Length
+      - name: Create portable ZIP
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:CROSSSCP_DIST_DIR | Out-Null
+          $deployDir = "build/gui-release/apps/crossscp-gui/Release"
+          Compress-Archive -Path "$deployDir/*" -DestinationPath "$env:CROSSSCP_DIST_DIR/$env:CROSSSCP_ARTIFACT_BASE-portable.zip" -Force
+      - name: Build setup EXE
+        shell: pwsh
+        run: |
+          $deployDir = (Resolve-Path "build/gui-release/apps/crossscp-gui/Release").Path
+          $outFile = "$env:GITHUB_WORKSPACE/$env:CROSSSCP_DIST_DIR/$env:CROSSSCP_ARTIFACT_BASE-setup.exe"
+          $licenseFile = "$env:GITHUB_WORKSPACE/LICENSE"
+          $makensis = "${env:ProgramFiles(x86)}\NSIS\makensis.exe"
+          if (!(Test-Path $makensis)) { $makensis = "makensis.exe" }
+          & $makensis "/DVERSION=$env:CROSSSCP_VERSION" "/DDEPLOY_DIR=$deployDir" "/DOUT_FILE=$outFile" "/DLICENSE_FILE=$licenseFile" packaging/windows/crossscp.nsi.in
+      - name: Generate checksums
+        shell: bash
+        run: scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
+          path: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.zip
+            ${{ env.CROSSSCP_DIST_DIR }}/*.exe
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+
+  ubuntu-deb:
+    name: Ubuntu DEB smoke test
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == 'linux' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Qt packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build dpkg-dev pkg-config libssl-dev zlib1g-dev qt6-base-dev qt6-declarative-dev qt6-tools-dev qt6-tools-dev-tools libgl1-mesa-dev libxkbcommon-dev
+      - name: Export release metadata
+        run: scripts/release-metadata.sh ubuntu amd64
+      - name: Configure GUI DEB package
+        run: cmake -S . -B build/ubuntu-deb -G Ninja -DCROSSSCP_BUILD_GUI=ON -DCROSSSCP_PACKAGE_DEB=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build DEB package
+        run: cmake --build build/ubuntu-deb --target package --config Release
+      - name: Collect DEB package
+        run: |
+          mkdir -p "$CROSSSCP_DIST_DIR"
+          find build/ubuntu-deb -maxdepth 1 -type f -name '*.deb' -exec cp {} "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.deb" \;
+          DEB_PATH="$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.deb"
+          test -f "$DEB_PATH"
+          dpkg-deb -I "$DEB_PATH"
+          dpkg-deb -c "$DEB_PATH"
+          dpkg-deb -c "$DEB_PATH" | grep -q './usr/bin/CrossSCP'
+          dpkg-deb -c "$DEB_PATH" | grep -q './usr/bin/crossscp-cli'
+          scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
+      - name: Upload Ubuntu DEB package
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
+          path: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.deb
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+
+  fedora-rpm:
+    name: Fedora RPM smoke test
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == 'linux' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install RPM packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build rpm pkg-config libssl-dev zlib1g-dev qt6-base-dev qt6-declarative-dev qt6-tools-dev qt6-tools-dev-tools libgl1-mesa-dev libxkbcommon-dev
+      - name: Export release metadata
+        run: scripts/release-metadata.sh fedora x86_64
+      - name: Configure GUI RPM package
+        run: cmake -S . -B build/fedora-rpm -G Ninja -DCROSSSCP_BUILD_GUI=ON -DCROSSSCP_PACKAGE_RPM=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build RPM package
+        run: cmake --build build/fedora-rpm --target package --config Release
+      - name: Collect RPM package
+        run: |
+          mkdir -p "$CROSSSCP_DIST_DIR"
+          find build/fedora-rpm -maxdepth 1 -type f -name '*.rpm' -exec cp {} "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.rpm" \;
+          RPM_PATH="$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.rpm"
+          test -f "$RPM_PATH"
+          rpm -qip "$RPM_PATH"
+          rpm -qlp "$RPM_PATH"
+          rpm -qlp "$RPM_PATH" | grep -q '/usr/bin/CrossSCP'
+          rpm -qlp "$RPM_PATH" | grep -q '/usr/bin/crossscp-cli'
+          scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
+      - name: Upload Fedora RPM package
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
+          path: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.rpm
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+
+  flatpak:
+    name: Flatpak bundle smoke test
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == 'linux' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder appstream
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub org.kde.Platform//6.7 org.kde.Sdk//6.7
+          sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.rust-stable//23.08
+      - name: Export release metadata
+        run: CROSSSCP_ARTIFACT_OS=linux scripts/release-metadata.sh flatpak x86_64
+      - name: Build Flatpak bundle
+        run: |
+          mkdir -p "$CROSSSCP_DIST_DIR"
+          flatpak-builder --force-clean --repo=build/flatpak-repo build/flatpak packaging/linux/flatpak/org.crossscp.CrossSCP.yml
+          test -x build/flatpak/files/bin/CrossSCP
+          test -x build/flatpak/files/bin/crossscp-cli
+          flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo build/flatpak-repo "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.flatpak" org.crossscp.CrossSCP
+          test -f "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.flatpak"
+          scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
+      - name: Upload Flatpak bundle
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
+          path: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.flatpak
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256

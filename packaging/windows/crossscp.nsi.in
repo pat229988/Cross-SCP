@@ -1,0 +1,48 @@
+!include "MUI2.nsh"
+
+!ifndef VERSION
+  !define VERSION "0.1.0"
+!endif
+!ifndef DEPLOY_DIR
+  !define DEPLOY_DIR "build\\gui-release\\apps\\crossscp-gui\\Release"
+!endif
+!ifndef OUT_FILE
+  !define OUT_FILE "dist\\windows\\CrossSCP-${VERSION}-windows-x64-setup.exe"
+!endif
+!ifndef LICENSE_FILE
+  !define LICENSE_FILE "..\\..\\LICENSE"
+!endif
+
+Name "CrossSCP"
+OutFile "${OUT_FILE}"
+InstallDir "$PROGRAMFILES64\\CrossSCP"
+InstallDirRegKey HKCU "Software\\CrossSCP" "InstallDir"
+RequestExecutionLevel admin
+Unicode true
+
+!define MUI_ABORTWARNING
+!insertmacro MUI_PAGE_WELCOME
+!insertmacro MUI_PAGE_LICENSE "${LICENSE_FILE}"
+!insertmacro MUI_PAGE_DIRECTORY
+!insertmacro MUI_PAGE_INSTFILES
+!insertmacro MUI_UNPAGE_CONFIRM
+!insertmacro MUI_UNPAGE_INSTFILES
+!insertmacro MUI_LANGUAGE "English"
+
+Section "CrossSCP" SecMain
+  SetOutPath "$INSTDIR"
+  File /r "${DEPLOY_DIR}\\*"
+  CreateDirectory "$SMPROGRAMS\\CrossSCP"
+  CreateShortcut "$SMPROGRAMS\\CrossSCP\\CrossSCP.lnk" "$INSTDIR\\CrossSCP.exe"
+  CreateShortcut "$SMPROGRAMS\\CrossSCP\\Uninstall CrossSCP.lnk" "$INSTDIR\\Uninstall.exe"
+  WriteRegStr HKCU "Software\\CrossSCP" "InstallDir" "$INSTDIR"
+  WriteUninstaller "$INSTDIR\\Uninstall.exe"
+SectionEnd
+
+Section "Uninstall"
+  Delete "$SMPROGRAMS\\CrossSCP\\CrossSCP.lnk"
+  Delete "$SMPROGRAMS\\CrossSCP\\Uninstall CrossSCP.lnk"
+  RMDir "$SMPROGRAMS\\CrossSCP"
+  RMDir /r "$INSTDIR"
+  DeleteRegKey HKCU "Software\\CrossSCP"
+SectionEnd

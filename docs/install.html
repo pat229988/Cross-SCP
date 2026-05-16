@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CrossSCP installation, trust warnings, post-install checks, and uninstall cleanup instructions.">
+  <title>Install CrossSCP</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #09111f;
+      --bg-2: #0f172a;
+      --card: rgba(15, 23, 42, 0.84);
+      --border: rgba(148, 163, 184, 0.24);
+      --text: #f8fafc;
+      --muted: #cbd5e1;
+      --soft: #94a3b8;
+      --accent: #38bdf8;
+      --accent-2: #2563eb;
+      --warn: #f59e0b;
+      --ok: #22c55e;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(56, 189, 248, 0.18), transparent 30rem),
+        radial-gradient(circle at 85% 15%, rgba(37, 99, 235, 0.22), transparent 28rem),
+        linear-gradient(135deg, var(--bg), var(--bg-2));
+      color: var(--text);
+      min-height: 100vh;
+    }
+    a { color: #93c5fd; }
+    a:hover { color: #bfdbfe; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 24px 64px; }
+    nav { display: flex; justify-content: space-between; align-items: center; gap: 18px; margin-bottom: 46px; }
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 850; }
+    .logo { width: 44px; height: 44px; border-radius: 14px; object-fit: contain; background: transparent; box-shadow: none; }
+    .nav-links { display: flex; gap: 16px; flex-wrap: wrap; justify-content: flex-end; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-weight: 700; font-size: 14px; }
+    .hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(260px, 0.75fr); gap: 26px; align-items: center; margin-bottom: 34px; }
+    .eyebrow { color: var(--accent); font-weight: 850; text-transform: uppercase; letter-spacing: 0.12em; font-size: 13px; }
+    h1 { font-size: clamp(42px, 7vw, 76px); line-height: 0.95; margin: 14px 0 18px; letter-spacing: -0.065em; }
+    .lead { color: var(--muted); font-size: clamp(17px, 2vw, 21px); line-height: 1.6; }
+    .hero-logo { width: min(100%, 320px); border-radius: 28px; display: block; margin: 0 auto; box-shadow: 0 28px 90px rgba(0,0,0,0.38); }
+    .card, .toc, .callout {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.24);
+      backdrop-filter: blur(16px);
+    }
+    .toc { padding: 20px; margin: 26px 0; }
+    .toc h2 { margin-top: 0; }
+    .toc-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .toc a { display: block; padding: 10px 12px; border: 1px solid var(--border); border-radius: 14px; text-decoration: none; font-weight: 750; background: rgba(255,255,255,0.06); }
+    section { margin-top: 28px; }
+    .card { padding: 24px; }
+    h2 { font-size: clamp(26px, 3vw, 38px); margin: 0 0 12px; letter-spacing: -0.04em; }
+    h3 { margin-top: 22px; }
+    p, li { color: var(--muted); line-height: 1.65; }
+    code { color: #e0f2fe; }
+    pre { overflow-x: auto; padding: 16px; border-radius: 16px; background: rgba(2,6,23,0.92); border: 1px solid rgba(148,163,184,0.18); }
+    pre code { color: #dbeafe; }
+    .callout { padding: 16px 18px; margin: 16px 0; border-left: 4px solid var(--warn); }
+    .ok { border-left-color: var(--ok); }
+    .placeholder { border: 1px dashed rgba(148,163,184,0.55); background: rgba(2,6,23,0.42); padding: 16px; border-radius: 16px; color: var(--soft); font-size: 14px; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .screenshot-grid { position: relative; min-height: 410px; perspective: 1400px; overflow: hidden; border-radius: 30px; }
+    .screen-card { width: min(68%, 720px); height: 370px; left: 50%; top: 18px; position: absolute; overflow: hidden; border-radius: 24px; border: 1px solid var(--border); background: rgba(15,23,42,0.9); animation: carouselOne 12s ease-in-out infinite, cardGlow 7s ease-in-out infinite; isolation: isolate; transition: transform 260ms ease, border-color 260ms ease, box-shadow 260ms ease; }
+    .screen-card:nth-child(2) { animation-name: carouselTwo, cardGlow; }
+    .screen-card:nth-child(3) { animation-name: carouselThree, cardGlow; }
+    .screen-card:hover { transform: rotateY(0deg) rotateX(0deg) translateY(-10px) scale(1.025); border-color: rgba(56,189,248,0.62); box-shadow: 0 34px 110px rgba(37,99,235,0.28); }
+    .screen-card::before { content: ""; position: absolute; inset: -40%; z-index: 2; background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.18) 48%, transparent 62%); transform: translateX(-55%) rotate(8deg); animation: shineSweep 8s ease-in-out infinite; pointer-events: none; mix-blend-mode: screen; }
+    .screen-card:nth-child(2)::before { animation-delay: -2.8s; }
+    .screen-card:nth-child(3)::before { animation-delay: -5.4s; }
+    .screen-img { position: absolute; inset: 0; background-size: contain; background-repeat: no-repeat; background-position: center; background-color: rgba(2, 6, 23, 0.86); opacity: 0.9; transform: scale(1.02); transition: transform 500ms ease, opacity 260ms ease; }
+    .screen-card:hover .screen-img { transform: scale(1.075); opacity: 1; }
+    .screen-img::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 28%, rgba(2,6,23,0.86)); }
+    .screen-macos { background-image: url("assets/screenshots/macos-install.png"); }
+    .screen-windows { background-image: url("assets/screenshots/windows-install.png"); }
+    .screen-linux { background-image: url("assets/screenshots/linux-install.png"); }
+    .screen-text { position: absolute; left: 18px; right: 18px; bottom: 16px; z-index: 3; transform: translateZ(30px); }
+    .screen-text h3 { margin: 0 0 8px; font-size: 21px; }
+    .screen-placeholder { position: absolute; inset: 18px; display: grid; place-items: center; text-align: center; border: 1px dashed rgba(148,163,184,0.45); border-radius: 18px; color: var(--soft); padding: 18px; }
+    .mac-guide { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 14px; counter-reset: macstep; position: relative; }
+    .mac-guide::before { content: ""; position: absolute; top: 44px; left: 8%; right: 8%; height: 2px; background: linear-gradient(90deg, rgba(56,189,248,0.1), rgba(56,189,248,0.7), rgba(168,85,247,0.7), rgba(56,189,248,0.1)); box-shadow: 0 0 24px rgba(56,189,248,0.28); z-index: 0; }
+    .mac-step { position: relative; min-height: 250px; overflow: hidden; border-radius: 22px; border: 1px solid var(--border); background: linear-gradient(180deg, rgba(15,23,42,0.92), rgba(15,23,42,0.7)); z-index: 1; box-shadow: 0 20px 70px rgba(0,0,0,0.24); transition: transform 260ms ease, border-color 260ms ease, box-shadow 260ms ease; }
+    .mac-step:hover { transform: translateY(-8px); border-color: rgba(56,189,248,0.62); box-shadow: 0 28px 90px rgba(37,99,235,0.2); }
+    .mac-step::before { counter-increment: macstep; content: counter(macstep); position: absolute; top: 12px; left: 12px; z-index: 2; width: 30px; height: 30px; border-radius: 999px; display: grid; place-items: center; font-weight: 900; background: linear-gradient(135deg, var(--accent-2), var(--accent)); box-shadow: 0 10px 28px rgba(37,99,235,0.4); }
+    .mac-step img { width: 100%; height: 155px; object-fit: contain; padding: 20px 14px 8px; background: radial-gradient(circle at center, rgba(56,189,248,0.12), transparent 62%), rgba(2,6,23,0.52); display: block; transition: transform 300ms ease; }
+    .mac-step:hover img { transform: scale(1.045); }
+    .mac-step div { padding: 14px; }
+    .mac-step h3 { margin: 0 0 6px; font-size: 16px; }
+    .mac-step p { margin: 0; font-size: 13px; }
+    .warning-visuals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-top: 16px; }
+    .warning-visual { overflow: hidden; border-radius: 20px; border: 1px solid var(--border); background: rgba(2,6,23,0.7); box-shadow: 0 20px 70px rgba(0,0,0,0.24); transition: transform 220ms ease, border-color 220ms ease; }
+    .warning-visual:hover { transform: translateY(-6px); border-color: rgba(56,189,248,0.6); }
+    .warning-visual img { width: 100%; display: block; }
+    .warning-visual figcaption { padding: 12px 14px; color: var(--muted); font-size: 14px; }
+    @keyframes carouselOne { 0%, 27% { transform: translateX(-50%) translateZ(130px) rotateY(0deg) scale(1); opacity: 1; z-index: 3; } 33%, 60% { transform: translateX(18%) translateZ(-120px) rotateY(-46deg) scale(0.72); opacity: 0.64; z-index: 1; } 66%, 93% { transform: translateX(-118%) translateZ(-120px) rotateY(46deg) scale(0.72); opacity: 0.64; z-index: 1; } 100% { transform: translateX(-50%) translateZ(130px) rotateY(0deg) scale(1); opacity: 1; z-index: 3; } }
+    @keyframes carouselTwo { 0%, 27% { transform: translateX(18%) translateZ(-120px) rotateY(-46deg) scale(0.72); opacity: 0.64; z-index: 1; } 33%, 60% { transform: translateX(-118%) translateZ(-120px) rotateY(46deg) scale(0.72); opacity: 0.64; z-index: 1; } 66%, 93% { transform: translateX(-50%) translateZ(130px) rotateY(0deg) scale(1); opacity: 1; z-index: 3; } 100% { transform: translateX(18%) translateZ(-120px) rotateY(-46deg) scale(0.72); opacity: 0.64; z-index: 1; } }
+    @keyframes carouselThree { 0%, 27% { transform: translateX(-118%) translateZ(-120px) rotateY(46deg) scale(0.72); opacity: 0.64; z-index: 1; } 33%, 60% { transform: translateX(-50%) translateZ(130px) rotateY(0deg) scale(1); opacity: 1; z-index: 3; } 66%, 93% { transform: translateX(18%) translateZ(-120px) rotateY(-46deg) scale(0.72); opacity: 0.64; z-index: 1; } 100% { transform: translateX(-118%) translateZ(-120px) rotateY(46deg) scale(0.72); opacity: 0.64; z-index: 1; } }
+    @keyframes shineSweep { 0%, 38% { transform: translateX(-62%) rotate(8deg); opacity: 0; } 48% { opacity: 1; } 62%, 100% { transform: translateX(62%) rotate(8deg); opacity: 0; } }
+    @keyframes cardGlow { 0%, 100% { box-shadow: 0 28px 90px rgba(0,0,0,0.34), 0 0 0 rgba(56,189,248,0); } 50% { box-shadow: 0 34px 105px rgba(0,0,0,0.38), 0 0 44px rgba(56,189,248,0.12); } }
+    footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--soft); display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+    @media (max-width: 860px) { nav, .hero { grid-template-columns: 1fr; align-items: flex-start; flex-direction: column; } .toc-grid, .split, .mac-guide, .warning-visuals { grid-template-columns: 1fr; } .screenshot-grid { min-height: 370px; } .screen-card { width: 82%; height: 330px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav>
+      <a class="brand" href="index.html"><img class="logo" src="assets/crossscp-logo-transparent.svg" alt="CrossSCP logo"><span>CrossSCP</span></a>
+      <div class="nav-links">
+        <a href="index.html">Home</a>
+        <a href="#trust">Trust warnings</a>
+        <a href="#linux-cleanup">Linux cleanup</a>
+        <a href="https://github.com/pat229988/Cross-SCP/releases">Releases</a>
+      </div>
+    </nav>
+
+    <main>
+      <section class="hero">
+        <div>
+          <div class="eyebrow">Install and trust guide</div>
+          <h1>Install CrossSCP safely on your desktop.</h1>
+          <p class="lead">Use these steps for beta releases, post-install checks, platform warnings, and complete Linux cleanup when switching between RPM, DEB, and Flatpak builds.</p>
+        </div>
+        <img class="hero-logo" src="assets/crossscp-logo.png" alt="CrossSCP app logo">
+      </section>
+
+      <aside class="toc">
+        <h2>Quick navigation</h2>
+        <div class="toc-grid">
+          <a href="#trust">Trust warnings</a>
+          <a href="#macos">macOS</a>
+          <a href="#windows">Windows</a>
+          <a href="#ubuntu">Ubuntu/Debian</a>
+          <a href="#fedora">Fedora RPM</a>
+          <a href="#flatpak">Flatpak</a>
+          <a href="#linux-checks">Linux checks</a>
+          <a href="#linux-cleanup">Linux cleanup</a>
+        </div>
+      </aside>
+
+      <section id="trust" class="card">
+        <h2>Before installing: why warnings appear</h2>
+        <p>CrossSCP is open source and the builds are produced by GitHub Actions, but beta packages are not yet distributed through every platform's paid or official trust channel.</p>
+        <div class="split">
+          <div class="callout"><strong>macOS Gatekeeper</strong><p>Browser downloads receive quarantine metadata. Without Apple Developer ID notarization, macOS may block the app. The terminal installer removes quarantine from the installed copy.</p></div>
+          <div class="callout"><strong>Windows SmartScreen</strong><p>Unsigned Windows installers show Unknown/Unverified Publisher. Removing that warning requires a paid Authenticode code-signing certificate.</p></div>
+        </div>
+        <div class="callout"><strong>Linux package trust</strong><p>Downloaded DEB/RPM/Flatpak beta artifacts can be verified with checksums, but they are not equivalent to APT, COPR, or Flathub distribution yet.</p></div>
+        <div class="warning-visuals">
+          <figure class="warning-visual"><img src="assets/screenshots/macos-gatekeeper-warning.svg" alt="Illustrative macOS Gatekeeper warning"><figcaption>macOS may ask you to approve an unsigned beta build.</figcaption></figure>
+          <figure class="warning-visual"><img src="assets/screenshots/windows-smartscreen-more-info.svg" alt="Illustrative Windows SmartScreen More info screen"><figcaption>Click More info to reveal the run option.</figcaption></figure>
+          <figure class="warning-visual"><img src="assets/screenshots/windows-smartscreen-run-anyway.svg" alt="Illustrative Windows SmartScreen Run anyway screen"><figcaption>Use Run anyway only for trusted official downloads.</figcaption></figure>
+        </div>
+      </section>
+
+      <section id="verify" class="card">
+        <h2>Verify downloads</h2>
+        <pre><code>shasum -a 256 -c CrossSCP-*.sha256
+# Linux alternative:
+sha256sum -c CrossSCP-*.sha256</code></pre>
+      </section>
+
+      <section id="macos" class="card">
+        <h2>macOS install</h2>
+        <p>Recommended free tester install:</p>
+        <pre><code>curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/install-macos.sh | bash</code></pre>
+        <h3>Manual Gatekeeper fallback</h3>
+        <pre><code>sudo xattr -dr com.apple.quarantine /Applications/CrossSCP.app
+open /Applications/CrossSCP.app</code></pre>
+        <h3>Uninstall</h3>
+        <pre><code>rm -rf /Applications/CrossSCP.app
+rm -rf "$HOME/Applications/CrossSCP.app"</code></pre>
+        <div class="placeholder">Screenshot placeholder: <code>macos-terminal-install.png</code></div>
+      </section>
+
+      <section class="card" id="macos-first-run">
+        <h2>macOS first-run visual guide</h2>
+        <p>If you install the unsigned beta manually and macOS blocks the first launch, follow these approval steps.</p>
+        <div class="mac-guide">
+          <article class="mac-step"><img src="assets/screenshots/macos/01-first-run-warning.png" alt="macOS first-run warning"><div><h3>Click Done</h3><p>When macOS shows Move to Trash / Done, choose <strong>Done</strong>.</p></div></article>
+          <article class="mac-step"><img src="assets/screenshots/macos/02-open-settings.png" alt="macOS Settings icon"><div><h3>Open Settings</h3><p>Open macOS System Settings from the Dock or Apple menu.</p></div></article>
+          <article class="mac-step"><img src="assets/screenshots/macos/03-privacy-security.png" alt="Privacy and Security option"><div><h3>Privacy & Security</h3><p>Select <strong>Privacy & Security</strong> in System Settings.</p></div></article>
+          <article class="mac-step"><img src="assets/screenshots/macos/04-open-anyway-setting.png" alt="Open Anyway setting"><div><h3>Open Anyway</h3><p>Scroll to Security and click <strong>Open Anyway</strong> for CrossSCP.</p></div></article>
+          <article class="mac-step"><img src="assets/screenshots/macos/05-confirm-open-anyway.png" alt="Confirm Open Anyway dialog"><div><h3>Confirm</h3><p>When prompted again, choose <strong>Open Anyway</strong>.</p></div></article>
+        </div>
+      </section>
+
+      <section id="windows" class="card">
+        <h2>Windows install</h2>
+        <p>Download the setup EXE or portable ZIP from GitHub Releases or the latest workflow artifacts.</p>
+        <ol>
+          <li>If SmartScreen appears, click <strong>More info</strong>.</li>
+          <li>Confirm the app name is CrossSCP and the download came from the official repository.</li>
+          <li>Click <strong>Run anyway</strong>.</li>
+        </ol>
+        <p>The installer bundles Qt and Microsoft Visual C++ runtime DLLs such as <code>Qt6Core.dll</code>, <code>Qt6Gui.dll</code>, <code>Qt6Qml.dll</code>, <code>vcruntime140.dll</code>, and <code>msvcp140.dll</code>.</p>
+        <h3>Uninstall</h3>
+        <p>Use <strong>Settings → Apps → Installed apps → CrossSCP → Uninstall</strong>, or the Start Menu <strong>Uninstall CrossSCP</strong> shortcut.</p>
+      </section>
+
+      <section id="ubuntu" class="card">
+        <h2>Ubuntu / Debian install</h2>
+        <pre><code>sudo apt install ./CrossSCP-*-ubuntu-amd64.deb</code></pre>
+        <h3>Uninstall</h3>
+        <pre><code>sudo apt remove crossscp
+# Deeper cleanup:
+bash scripts/uninstall-linux.sh --remove-config</code></pre>
+      </section>
+
+      <section id="fedora" class="card">
+        <h2>Fedora RPM install</h2>
+        <pre><code>sudo dnf install ./CrossSCP-*-fedora-x86_64.rpm</code></pre>
+        <p>If DNF warns that the local RPM is unsigned, install only if you trust the GitHub Actions artifact and checksum.</p>
+        <h3>Uninstall</h3>
+        <pre><code>sudo dnf remove crossscp
+# Remove stale launchers too:
+bash scripts/uninstall-linux.sh</code></pre>
+        <div class="placeholder">Screenshot placeholder: <code>fedora-kde-stale-launcher.png</code></div>
+      </section>
+
+      <section id="flatpak" class="card">
+        <h2>Flatpak install</h2>
+        <pre><code>sudo dnf install flatpak
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+flatpak install --user ./CrossSCP-*-linux-x86_64.flatpak
+flatpak run org.crossscp.CrossSCP</code></pre>
+        <p>The Flatpak file can be small because the shared KDE runtime is downloaded separately from Flathub.</p>
+        <h3>Uninstall</h3>
+        <pre><code>flatpak uninstall --user org.crossscp.CrossSCP
+# If old RPM/DEB launchers remain:
+bash scripts/uninstall-linux.sh</code></pre>
+        <div class="placeholder">Screenshot placeholders: <code>fedora-flatpak-install.png</code>, <code>fedora-kde-flatpak-launcher.png</code></div>
+      </section>
+
+      <section id="linux-checks" class="card">
+        <h2>Linux post-install checks</h2>
+        <p>Run from a terminal first. This shows useful errors if the desktop launcher fails.</p>
+        <pre><code># Flatpak
+flatpak run org.crossscp.CrossSCP
+
+# RPM/DEB
+/usr/bin/CrossSCP</code></pre>
+        <h3>Find duplicate or stale launchers</h3>
+        <pre><code>find ~/.local/share/applications /usr/share/applications \
+  ~/.local/share/flatpak/exports/share/applications \
+  /var/lib/flatpak/exports/share/applications \
+  \( -iname '*crossscp*.desktop' -o -iname '*CrossSCP*.desktop' \) 2>/dev/null</code></pre>
+        <h3>Refresh KDE menu cache</h3>
+        <pre><code>kbuildsycoca6 --noincremental || kbuildsycoca5 --noincremental</code></pre>
+      </section>
+
+      <section id="linux-cleanup" class="card">
+        <h2>Linux complete cleanup script</h2>
+        <p>The cleanup script removes CrossSCP Flatpak, RPM, DEB installs, stale non-Flatpak desktop files, and optionally user config/cache/data.</p>
+        <pre><code># Preview only
+bash scripts/uninstall-linux.sh --dry-run
+
+# Remove packages and stale launchers
+bash scripts/uninstall-linux.sh
+
+# Also remove user config/cache/data
+bash scripts/uninstall-linux.sh --remove-config
+
+# Non-interactive cleanup
+bash scripts/uninstall-linux.sh --yes --remove-config</code></pre>
+      </section>
+
+      <section class="card">
+        <h2>Full Markdown reference</h2>
+        <p>This rendered page is optimized for local browsing. The full Markdown source remains available for editing and GitHub rendering:</p>
+        <p><a href="INSTALLATION.md">Open INSTALLATION.md</a></p>
+      </section>
+    </main>
+
+    <footer>
+      <span>© CrossSCP contributors. AGPL-3.0-or-later.</span>
+      <span><a href="index.html">Back to home</a></span>
+    </footer>
+  </div>
+</body>
+</html>

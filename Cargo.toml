@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+[workspace]
+members = [
+    "crates/crossscp-core",
+    "crates/crossscp-cli",
+    "crates/crossscp-config",
+    "crates/crossscp-platform-macos",
+    "crates/crossscp-platform-windows",
+    "crates/crossscp-protocol-local",
+    "crates/crossscp-protocol-sftp",
+    "crates/crossscp-security",
+    "crates/crossscp-transfer",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+license = "AGPL-3.0-or-later"
+repository = "https://example.invalid/crossscp"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "deny"

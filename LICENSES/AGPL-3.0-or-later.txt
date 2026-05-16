@@ -1,0 +1,6 @@
+GNU Affero General Public License v3.0 or later
+
+The full AGPL-3.0 license text is currently available in the repository root `LICENSE` file.
+New clean-room CrossSCP source files are intended to use SPDX-License-Identifier: AGPL-3.0-or-later.
+
+Before first public release, keep this file synchronized with the canonical FSF AGPL-3.0 text.

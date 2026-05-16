@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CrossSCP is a clean-room, cross-platform SFTP file transfer client built with Rust and Qt for fast dual-pane file operations.">
+  <meta property="og:title" content="CrossSCP - Cross-platform SFTP file transfer">
+  <meta property="og:description" content="A Rust + Qt desktop SFTP client with dual-pane browsing, password/key authentication, recursive transfers, and public release packaging in progress.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://pat229988.github.io/Cross-SCP/">
+  <title>CrossSCP | Cross-platform SFTP file transfer</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #09111f;
+      --bg-2: #0f172a;
+      --card: rgba(15, 23, 42, 0.78);
+      --border: rgba(148, 163, 184, 0.22);
+      --text: #f8fafc;
+      --muted: #cbd5e1;
+      --soft: #94a3b8;
+      --accent: #38bdf8;
+      --accent-2: #2563eb;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(56, 189, 248, 0.22), transparent 30rem),
+        radial-gradient(circle at 85% 15%, rgba(37, 99, 235, 0.24), transparent 28rem),
+        linear-gradient(135deg, var(--bg), var(--bg-2));
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    a { color: #93c5fd; }
+    a:hover { color: #bfdbfe; }
+
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 24px 64px; }
+
+    nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 18px;
+      margin-bottom: 72px;
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; font-weight: 800; letter-spacing: -0.02em; }
+    .logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      object-fit: contain;
+      background: transparent;
+      box-shadow: none;
+    }
+
+    .nav-links { display: flex; gap: 18px; flex-wrap: wrap; justify-content: flex-end; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-weight: 650; font-size: 14px; }
+
+    .hero { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr); gap: 34px; align-items: center; }
+    .eyebrow { color: var(--accent); font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em; font-size: 13px; }
+    h1 { font-size: clamp(46px, 8vw, 88px); line-height: 0.92; margin: 14px 0 20px; letter-spacing: -0.07em; }
+    .lead { color: var(--muted); font-size: clamp(18px, 2vw, 22px); line-height: 1.6; max-width: 760px; }
+
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 13px 18px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, var(--accent-2), #0284c7);
+      color: white;
+      text-decoration: none;
+      font-weight: 800;
+      box-shadow: 0 18px 42px rgba(37, 99, 235, 0.32);
+    }
+    .button.secondary { background: rgba(255,255,255,0.1); box-shadow: none; border: 1px solid var(--border); }
+
+    .panel, .card, .status-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.25);
+      backdrop-filter: blur(16px);
+    }
+    .panel { padding: 24px; }
+    .panel-title { margin: 0 0 18px; font-size: 18px; }
+    .mock-window { border-radius: 18px; overflow: hidden; border: 1px solid var(--border); background: rgba(2,6,23,0.72); }
+    .mock-top { display: flex; gap: 7px; padding: 12px; border-bottom: 1px solid var(--border); }
+    .dot { width: 11px; height: 11px; border-radius: 999px; background: #ef4444; }
+    .dot:nth-child(2) { background: #f59e0b; }
+    .dot:nth-child(3) { background: #22c55e; }
+    .mock-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); }
+    .pane { background: rgba(15,23,42,0.92); padding: 16px; min-height: 190px; }
+    .pane h3 { margin: 0 0 12px; color: #e2e8f0; font-size: 14px; }
+    .row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; color: var(--muted); border-top: 1px solid rgba(148,163,184,0.12); font-size: 13px; }
+
+    section { margin-top: 72px; }
+    .section-head { max-width: 760px; margin-bottom: 22px; }
+    h2 { font-size: clamp(28px, 4vw, 44px); margin: 0 0 12px; letter-spacing: -0.04em; }
+    .section-head p, .card p, .status-card p, li { color: var(--muted); line-height: 1.65; }
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .card, .status-card { padding: 22px; }
+    .card h3, .status-card h3 { margin: 0 0 10px; font-size: 18px; }
+    .icon { font-size: 26px; margin-bottom: 12px; }
+
+    .status-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+    .status-card { padding: 18px; }
+    .badge { display: inline-flex; align-items: center; padding: 5px 9px; border-radius: 999px; font-size: 12px; font-weight: 800; margin-bottom: 12px; }
+    .ready { color: #bbf7d0; background: rgba(34,197,94,0.14); }
+    .planned { color: #fde68a; background: rgba(245,158,11,0.14); }
+
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .checklist { margin: 0; padding-left: 20px; }
+
+    .showcase {
+      position: relative;
+      min-height: 430px;
+      perspective: 1400px;
+      overflow: hidden;
+      border-radius: 30px;
+    }
+    .shot-card {
+      width: min(68%, 720px);
+      height: 390px;
+      left: 50%;
+      top: 18px;
+      position: relative;
+      position: absolute;
+      overflow: hidden;
+      border-radius: 26px;
+      border: 1px solid var(--border);
+      background: linear-gradient(145deg, rgba(15,23,42,0.92), rgba(30,41,59,0.7));
+      box-shadow: 0 28px 90px rgba(0,0,0,0.34);
+      transform-style: preserve-3d;
+      isolation: isolate;
+      animation: carouselOne 12s ease-in-out infinite, cardGlow 7s ease-in-out infinite;
+      transition: transform 260ms ease, border-color 260ms ease, box-shadow 260ms ease;
+    }
+    .shot-card:nth-child(2) { animation-name: carouselTwo, cardGlow; }
+    .shot-card:nth-child(3) { animation-name: carouselThree, cardGlow; }
+    .shot-card:hover { transform: rotateY(0deg) rotateX(0deg) translateY(-10px) scale(1.025); border-color: rgba(56,189,248,0.62); box-shadow: 0 34px 110px rgba(37,99,235,0.28); }
+    .shot-card::before {
+      content: "";
+      position: absolute;
+      inset: -40%;
+      z-index: 2;
+      background: linear-gradient(115deg, transparent 35%, rgba(255,255,255,0.18) 48%, transparent 62%);
+      transform: translateX(-55%) rotate(8deg);
+      animation: shineSweep 8s ease-in-out infinite;
+      pointer-events: none;
+      mix-blend-mode: screen;
+    }
+    .shot-card:nth-child(2)::before { animation-delay: -2.8s; }
+    .shot-card:nth-child(3)::before { animation-delay: -5.4s; }
+    .shot-image {
+      position: absolute;
+      inset: 0;
+      background-size: contain;
+      background-repeat: no-repeat;
+      background-position: center;
+      opacity: 0.9;
+      transform: scale(1.02);
+      transition: transform 500ms ease, opacity 260ms ease;
+      background-color: rgba(2, 6, 23, 0.86);
+    }
+    .shot-card:hover .shot-image { transform: scale(1.075); opacity: 1; }
+    .shot-image::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, transparent 30%, rgba(2,6,23,0.84));
+    }
+    .shot-macos { background-image: url("assets/screenshots/macos-install.png"); }
+    .shot-windows { background-image: url("assets/screenshots/windows-install.png"); }
+    .shot-linux { background-image: url("assets/screenshots/linux-install.png"); }
+    .shot-copy {
+      position: absolute;
+      left: 20px;
+      right: 20px;
+      bottom: 18px;
+      z-index: 3;
+      transform: translateZ(30px);
+    }
+    .shot-copy h3 { margin: 0 0 8px; font-size: 22px; }
+    .shot-copy p { margin: 0; color: #dbeafe; }
+    .shot-placeholder {
+      position: absolute;
+      inset: 18px;
+      display: grid;
+      place-items: center;
+      text-align: center;
+      color: var(--soft);
+      border: 1px dashed rgba(148,163,184,0.45);
+      border-radius: 20px;
+      padding: 18px;
+    }
+    @keyframes carouselOne {
+      0%, 27% { transform: translateX(-50%) translateZ(130px) rotateY(0deg) scale(1); opacity: 1; z-index: 3; }
+      33%, 60% { transform: translateX(18%) translateZ(-120px) rotateY(-46deg) scale(0.72); opacity: 0.64; z-index: 1; }
+      66%, 93% { transform: translateX(-118%) translateZ(-120px) rotateY(46deg) scale(0.72); opacity: 0.64; z-index: 1; }
+      100% { transform: translateX(-50%) translateZ(130px) rotateY(0deg) scale(1); opacity: 1; z-index: 3; }
+    }
+    @keyframes carouselTwo {
+      0%, 27% { transform: translateX(18%) translateZ(-120px) rotateY(-46deg) scale(0.72); opacity: 0.64; z-index: 1; }
+      33%, 60% { transform: translateX(-118%) translateZ(-120px) rotateY(46deg) scale(0.72); opacity: 0.64; z-index: 1; }
+      66%, 93% { transform: translateX(-50%) translateZ(130px) rotateY(0deg) scale(1); opacity: 1; z-index: 3; }
+      100% { transform: translateX(18%) translateZ(-120px) rotateY(-46deg) scale(0.72); opacity: 0.64; z-index: 1; }
+    }
+    @keyframes carouselThree {
+      0%, 27% { transform: translateX(-118%) translateZ(-120px) rotateY(46deg) scale(0.72); opacity: 0.64; z-index: 1; }
+      33%, 60% { transform: translateX(-50%) translateZ(130px) rotateY(0deg) scale(1); opacity: 1; z-index: 3; }
+      66%, 93% { transform: translateX(18%) translateZ(-120px) rotateY(-46deg) scale(0.72); opacity: 0.64; z-index: 1; }
+      100% { transform: translateX(-118%) translateZ(-120px) rotateY(46deg) scale(0.72); opacity: 0.64; z-index: 1; }
+    }
+    @keyframes shineSweep {
+      0%, 38% { transform: translateX(-62%) rotate(8deg); opacity: 0; }
+      48% { opacity: 1; }
+      62%, 100% { transform: translateX(62%) rotate(8deg); opacity: 0; }
+    }
+    @keyframes cardGlow {
+      0%, 100% { box-shadow: 0 28px 90px rgba(0,0,0,0.34), 0 0 0 rgba(56,189,248,0); }
+      50% { box-shadow: 0 34px 105px rgba(0,0,0,0.38), 0 0 44px rgba(56,189,248,0.12); }
+    }
+    .mac-guide {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 14px;
+      counter-reset: macstep;
+      position: relative;
+    }
+    .mac-guide::before {
+      content: "";
+      position: absolute;
+      top: 44px;
+      left: 8%;
+      right: 8%;
+      height: 2px;
+      background: linear-gradient(90deg, rgba(56,189,248,0.1), rgba(56,189,248,0.7), rgba(168,85,247,0.7), rgba(56,189,248,0.1));
+      box-shadow: 0 0 24px rgba(56,189,248,0.28);
+      z-index: 0;
+    }
+    .mac-step {
+      position: relative;
+      min-height: 250px;
+      overflow: hidden;
+      border-radius: 22px;
+      border: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(15,23,42,0.92), rgba(15,23,42,0.7));
+      z-index: 1;
+      box-shadow: 0 20px 70px rgba(0,0,0,0.24);
+      transition: transform 260ms ease, border-color 260ms ease, box-shadow 260ms ease;
+    }
+    .mac-step:hover {
+      transform: translateY(-8px);
+      border-color: rgba(56,189,248,0.62);
+      box-shadow: 0 28px 90px rgba(37,99,235,0.2);
+    }
+    .mac-step::before {
+      counter-increment: macstep;
+      content: counter(macstep);
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 2;
+      width: 30px;
+      height: 30px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      font-weight: 900;
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent-2), var(--accent));
+      box-shadow: 0 10px 28px rgba(37,99,235,0.4);
+    }
+    .mac-step img {
+      width: 100%;
+      height: 155px;
+      object-fit: contain;
+      padding: 20px 14px 8px;
+      background:
+        radial-gradient(circle at center, rgba(56,189,248,0.12), transparent 62%),
+        rgba(2,6,23,0.52);
+      display: block;
+      transition: transform 300ms ease;
+    }
+    .mac-step:hover img { transform: scale(1.045); }
+    .mac-step div { padding: 14px; }
+    .mac-step h3 { margin: 0 0 6px; font-size: 16px; }
+    .mac-step p { margin: 0; font-size: 13px; }
+    .warning-visuals {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+    .warning-visual {
+      overflow: hidden;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: rgba(2,6,23,0.7);
+      box-shadow: 0 20px 70px rgba(0,0,0,0.24);
+      transition: transform 220ms ease, border-color 220ms ease;
+    }
+    .warning-visual:hover { transform: translateY(-6px); border-color: rgba(56,189,248,0.6); }
+    .warning-visual img { width: 100%; display: block; }
+    .warning-visual figcaption { padding: 12px 14px; color: var(--muted); font-size: 14px; }
+
+    footer { margin-top: 72px; padding-top: 28px; border-top: 1px solid var(--border); color: var(--soft); display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+
+    @media (max-width: 860px) {
+      nav { align-items: flex-start; flex-direction: column; margin-bottom: 46px; }
+      .hero, .split { grid-template-columns: 1fr; }
+      .grid, .status-grid, .mac-guide, .warning-visuals { grid-template-columns: 1fr; }
+      .showcase { min-height: 380px; }
+      .shot-card { width: 82%; height: 340px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav aria-label="Primary navigation">
+      <div class="brand"><img class="logo" src="assets/crossscp-logo-transparent.svg" alt="CrossSCP logo"><span>CrossSCP</span></div>
+      <div class="nav-links">
+        <a href="#features">Features</a>
+        <a href="download.html">Downloads</a>
+        <a href="#roadmap">Roadmap</a>
+        <a href="https://github.com/pat229988/Cross-SCP.git">GitHub</a>
+      </div>
+    </nav>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div>
+          <div class="eyebrow">Clean-room Rust + Qt SFTP client</div>
+          <h1 id="hero-title">Fast dual-pane file transfer for modern desktops.</h1>
+          <p class="lead">CrossSCP is a cross-platform desktop SFTP client designed for straightforward local-to-remote workflows: browse both sides, select files or folders, transfer recursively, and keep an eye on session activity.</p>
+          <div class="actions">
+            <a class="button" href="download.html">Download CrossSCP</a>
+            <a class="button secondary" href="install.html">Install guide</a>
+            <a class="button secondary" href="https://github.com/pat229988/Cross-SCP.git">View source</a>
+          </div>
+        </div>
+
+        <aside class="panel" aria-label="CrossSCP interface preview">
+          <h2 class="panel-title">Built around the workflow you expect</h2>
+          <div class="mock-window">
+            <div class="mock-top"><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+            <div class="mock-grid">
+              <div class="pane">
+                <h3>Local</h3>
+                <div class="row"><span>Documents</span><span>folder</span></div>
+                <div class="row"><span>build.zip</span><span>18 MB</span></div>
+                <div class="row"><span>assets</span><span>folder</span></div>
+                <div class="row"><span>notes.md</span><span>4 KB</span></div>
+              </div>
+              <div class="pane">
+                <h3>Remote SFTP</h3>
+                <div class="row"><span>/var/www</span><span>folder</span></div>
+                <div class="row"><span>public</span><span>folder</span></div>
+                <div class="row"><span>release.tar</span><span>42 MB</span></div>
+                <div class="row"><span>logs</span><span>folder</span></div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <section id="features" aria-labelledby="features-title">
+        <div class="section-head">
+          <h2 id="features-title">Core features</h2>
+          <p>CrossSCP focuses on the essentials of secure file transfer while keeping the interface familiar and productive.</p>
+        </div>
+        <div class="grid">
+          <article class="card"><div class="icon">⇄</div><h3>Dual-pane transfers</h3><p>Browse local and remote SFTP folders side-by-side, then upload or download selected files and directories.</p></article>
+          <article class="card"><div class="icon">🔐</div><h3>Password and key auth</h3><p>Connect with password authentication or SSH private keys, including keys discovered from your local SSH folder.</p></article>
+          <article class="card"><div class="icon">📁</div><h3>Recursive folder operations</h3><p>Transfer complete folders, create directories, delete files, and manage common local and remote file actions.</p></article>
+          <article class="card"><div class="icon">☑</div><h3>Batch selection</h3><p>Select multiple files or folders and run upload, download, or delete operations as a batch.</p></article>
+          <article class="card"><div class="icon">🧾</div><h3>Session visibility</h3><p>Review current-session queue entries and activity logs so you know what happened during a connection.</p></article>
+          <article class="card"><div class="icon">⚙</div><h3>Open-source foundation</h3><p>Built as a clean-room AGPL project with a Rust core and a thin Qt desktop interface.</p></article>
+        </div>
+      </section>
+
+      <section id="trust-warnings" aria-labelledby="trust-warnings-title">
+        <div class="section-head">
+          <h2 id="trust-warnings-title">Installer warnings explained</h2>
+          <p>These illustrations show the platform trust prompts beta users may see. They are expected until CrossSCP uses paid signing/notarization and official app distribution channels.</p>
+        </div>
+        <div class="warning-visuals">
+          <figure class="warning-visual"><img src="assets/screenshots/macos-gatekeeper-warning.svg" alt="Illustrative macOS Gatekeeper warning"><figcaption>macOS may ask you to approve an unsigned beta build.</figcaption></figure>
+          <figure class="warning-visual"><img src="assets/screenshots/windows-smartscreen-more-info.svg" alt="Illustrative Windows SmartScreen More info screen"><figcaption>Windows SmartScreen may hide the install option behind More info.</figcaption></figure>
+          <figure class="warning-visual"><img src="assets/screenshots/windows-smartscreen-run-anyway.svg" alt="Illustrative Windows SmartScreen Run anyway screen"><figcaption>Only use Run anyway if you downloaded CrossSCP from the official repository.</figcaption></figure>
+        </div>
+      </section>
+
+      <section id="downloads" aria-labelledby="downloads-title">
+        <div class="section-head">
+          <h2 id="downloads-title">Distribution status</h2>
+          <p>Beta packaging automation is available from the dev branch and tagged releases. Test artifacts are attached to workflow runs, while tagged releases publish draft GitHub Release assets. See the install guide for platform trust warnings, post-install checks, and uninstall cleanup.</p>
+        </div>
+        <div class="status-grid">
+          <article class="status-card"><span class="badge ready">Beta</span><h3>macOS DMG</h3><p>Apple Silicon DMG automation builds with Qt deployment and checksum generation.</p></article>
+          <article class="status-card"><span class="badge planned">Next</span><h3>Windows MSI</h3><p>WiX MSI packaging remains the next Windows installer milestone.</p></article>
+          <article class="status-card"><span class="badge ready">Beta</span><h3>Windows EXE</h3><p>NSIS setup EXE plus portable ZIP automation is available for test releases.</p></article>
+          <article class="status-card"><span class="badge ready">Beta</span><h3>Flatpak</h3><p>Flatpak bundle automation is available with Linux desktop metadata.</p></article>
+          <article class="status-card"><span class="badge ready">Beta</span><h3>Ubuntu DEB</h3><p>Ubuntu `.deb` automation is available through CPack DEB.</p></article>
+        </div>
+      </section>
+
+      <section id="install-preview" aria-labelledby="install-preview-title">
+        <div class="section-head">
+          <h2 id="install-preview-title">CrossSCP app screenshots</h2>
+          <p>The app screenshots rotate one at a time in a CSS-only carousel. The side screenshots stay smaller and angled so the section works on GitHub Pages without JavaScript.</p>
+        </div>
+        <div class="showcase">
+          <article class="shot-card">
+            <div class="shot-image shot-macos"></div>
+            <div class="shot-copy"><h3>macOS</h3><p>CrossSCP running on macOS.</p></div>
+          </article>
+          <article class="shot-card">
+            <div class="shot-image shot-windows"></div>
+            <div class="shot-copy"><h3>Windows</h3><p>CrossSCP running on Windows.</p></div>
+          </article>
+          <article class="shot-card">
+            <div class="shot-image shot-linux"></div>
+            <div class="shot-copy"><h3>Linux</h3><p>CrossSCP running on Fedora Linux.</p></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="mac-visual-guide" aria-labelledby="mac-visual-guide-title">
+        <div class="section-head">
+          <h2 id="mac-visual-guide-title">macOS first-run visual guide</h2>
+          <p>If you install the unsigned beta by downloading the app manually, macOS may require these extra approval steps. The terminal installer is still the easiest tester path.</p>
+        </div>
+        <div class="mac-guide">
+          <article class="mac-step"><img src="assets/screenshots/macos/01-first-run-warning.png" alt="macOS first-run warning"><div><h3>Click Done</h3><p>When macOS shows Move to Trash / Done, choose <strong>Done</strong>.</p></div></article>
+          <article class="mac-step"><img src="assets/screenshots/macos/02-open-settings.png" alt="macOS Settings icon"><div><h3>Open Settings</h3><p>Open macOS System Settings from the Dock or Apple menu.</p></div></article>
+          <article class="mac-step"><img src="assets/screenshots/macos/03-privacy-security.png" alt="Privacy and Security option"><div><h3>Privacy & Security</h3><p>Select <strong>Privacy & Security</strong> in System Settings.</p></div></article>
+          <article class="mac-step"><img src="assets/screenshots/macos/04-open-anyway-setting.png" alt="Open Anyway setting"><div><h3>Open Anyway</h3><p>Scroll to Security and click <strong>Open Anyway</strong> for CrossSCP.</p></div></article>
+          <article class="mac-step"><img src="assets/screenshots/macos/05-confirm-open-anyway.png" alt="Confirm Open Anyway dialog"><div><h3>Confirm</h3><p>When prompted again, choose <strong>Open Anyway</strong>.</p></div></article>
+        </div>
+      </section>
+
+      <section id="roadmap" aria-labelledby="roadmap-title">
+        <div class="split">
+          <article class="card">
+            <h2 id="roadmap-title">Roadmap</h2>
+            <ul class="checklist">
+              <li>Signed and notarized macOS release workflow.</li>
+              <li>Windows MSI and setup EXE packaging automation.</li>
+              <li>Flatpak and Ubuntu `.deb` distribution.</li>
+              <li>Persistent queue/progress improvements.</li>
+              <li>Improved host-key and credential storage UX.</li>
+            </ul>
+          </article>
+          <article class="card">
+            <h2>Project links</h2>
+            <p>Created by <strong>Pratik Patel</strong>. CrossSCP is developed publicly on GitHub.</p>
+            <p><a href="download.html">Download page</a><br><a href="https://github.com/pat229988">Creator profile</a><br><a href="https://github.com/pat229988/Cross-SCP.git">Repository</a><br><a href="https://github.com/pat229988/Cross-SCP/issues">Report an issue</a></p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>© CrossSCP contributors. AGPL-3.0-or-later.</span>
+      <span>Secure file transfer, built with Rust and Qt.</span>
+    </footer>
+  </div>
+</body>
+</html>

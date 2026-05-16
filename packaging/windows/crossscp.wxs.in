@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="CrossSCP" Manufacturer="CrossSCP contributors" Version="@PROJECT_VERSION@" UpgradeCode="PUT-GENERATED-UPGRADE-CODE-HERE">
+    <MediaTemplate EmbedCab="yes" />
+    <Feature Id="Main" Title="CrossSCP" Level="1">
+      <ComponentGroupRef Id="CrossSCPComponents" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="INSTALLFOLDER" Name="CrossSCP" />
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <ComponentGroup Id="CrossSCPComponents" Directory="INSTALLFOLDER">
+      <!-- TODO: Harvest deployed Qt app directory with heat/wix tooling. -->
+    </ComponentGroup>
+  </Fragment>
+</Wix>

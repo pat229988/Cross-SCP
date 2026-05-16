@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Download CrossSCP for macOS, Windows, Fedora, Ubuntu, and Flatpak.">
+  <title>Download CrossSCP</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#09111f; --bg-2:#0f172a; --card:rgba(15,23,42,.84); --border:rgba(148,163,184,.24); --text:#f8fafc; --muted:#cbd5e1; --soft:#94a3b8; --accent:#38bdf8; --accent-2:#2563eb; --warn:#f59e0b; --ok:#22c55e; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; background:radial-gradient(circle at top left,rgba(56,189,248,.18),transparent 30rem),radial-gradient(circle at 85% 15%,rgba(37,99,235,.22),transparent 28rem),linear-gradient(135deg,var(--bg),var(--bg-2)); color:var(--text); min-height:100vh; }
+    a { color:#93c5fd; } a:hover { color:#bfdbfe; }
+    .wrap { max-width:1120px; margin:0 auto; padding:28px 24px 64px; }
+    nav { display:flex; justify-content:space-between; align-items:center; gap:18px; margin-bottom:46px; }
+    .brand { display:flex; align-items:center; gap:12px; font-weight:850; text-decoration:none; color:var(--text); }
+    .logo { width:44px; height:44px; border-radius:14px; object-fit:contain; }
+    .nav-links { display:flex; gap:16px; flex-wrap:wrap; justify-content:flex-end; }
+    .nav-links a { color:var(--muted); text-decoration:none; font-weight:700; font-size:14px; }
+    .hero { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(240px,.85fr); gap:28px; align-items:center; margin-bottom:28px; }
+    .eyebrow { color:var(--accent); font-weight:850; text-transform:uppercase; letter-spacing:.12em; font-size:13px; }
+    h1 { font-size:clamp(42px,7vw,76px); line-height:.95; margin:14px 0 18px; letter-spacing:-.065em; }
+    .lead, p, li { color:var(--muted); line-height:1.65; }
+    .hero-logo { width:min(100%,280px); border-radius:28px; display:block; margin:0 auto; box-shadow:0 28px 90px rgba(0,0,0,.38); }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:24px; padding:24px; box-shadow:0 24px 80px rgba(0,0,0,.24); backdrop-filter:blur(16px); margin-top:22px; }
+    h2 { font-size:clamp(26px,3vw,38px); margin:0 0 12px; letter-spacing:-.04em; }
+    .button { display:inline-flex; align-items:center; justify-content:center; gap:8px; padding:13px 18px; border-radius:14px; background:linear-gradient(135deg,var(--accent-2),#0284c7); color:white; text-decoration:none; font-weight:800; box-shadow:0 18px 42px rgba(37,99,235,.32); }
+    .button.secondary { background:rgba(255,255,255,.1); box-shadow:none; border:1px solid var(--border); }
+    .actions { display:flex; gap:12px; flex-wrap:wrap; margin-top:24px; }
+    table { width:100%; border-collapse:separate; border-spacing:0; overflow:hidden; border-radius:18px; border:1px solid var(--border); }
+    th, td { padding:16px; text-align:left; vertical-align:top; border-bottom:1px solid rgba(148,163,184,.16); }
+    th { color:#e2e8f0; background:rgba(2,6,23,.52); font-size:14px; text-transform:uppercase; letter-spacing:.08em; }
+    tr:last-child td { border-bottom:0; }
+    td { color:var(--muted); }
+    code { color:#e0f2fe; }
+    pre { overflow-x:auto; padding:16px; border-radius:16px; background:rgba(2,6,23,.92); border:1px solid rgba(148,163,184,.18); }
+    pre code { color:#dbeafe; }
+    .pill { display:inline-flex; padding:5px 9px; border-radius:999px; font-size:12px; font-weight:850; color:#bbf7d0; background:rgba(34,197,94,.14); margin-bottom:8px; }
+    .warn { color:#fde68a; background:rgba(245,158,11,.14); }
+    .download-link { font-weight:800; text-decoration:none; }
+    footer { margin-top:56px; padding-top:24px; border-top:1px solid var(--border); color:var(--soft); display:flex; justify-content:space-between; gap:18px; flex-wrap:wrap; }
+    @media (max-width:860px) { nav,.hero { grid-template-columns:1fr; align-items:flex-start; flex-direction:column; } table, thead, tbody, th, td, tr { display:block; } thead { display:none; } tr { border-bottom:1px solid var(--border); } td { border-bottom:0; padding:10px 14px; } td::before { content:attr(data-label); display:block; color:#e2e8f0; font-size:12px; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav>
+      <a class="brand" href="index.html"><img class="logo" src="assets/crossscp-logo-transparent.svg" alt="CrossSCP logo"><span>CrossSCP</span></a>
+      <div class="nav-links"><a href="index.html">Home</a><a href="install.html">Install guide</a><a href="https://github.com/pat229988/Cross-SCP/releases">GitHub Releases</a></div>
+    </nav>
+    <main>
+      <section class="hero">
+        <div>
+          <div class="eyebrow">Download beta builds</div>
+          <h1>Choose the package for your platform.</h1>
+          <p class="lead">The best permanent download source is the GitHub Releases page. This page explains which release asset to pick for each operating system and architecture.</p>
+          <div class="actions"><a class="button" href="https://github.com/pat229988/Cross-SCP/releases/latest">Latest release</a><a class="button secondary" href="install.html">Install instructions</a></div>
+        </div>
+        <img class="hero-logo" src="assets/crossscp-logo.png" alt="CrossSCP logo">
+      </section>
+
+      <section class="card">
+        <h2>Recommended downloads</h2>
+        <p>Use the direct v1.0.0 links below after the public release is published. If a link is not available yet, open <a href="https://github.com/pat229988/Cross-SCP/releases/latest">the latest GitHub Release</a> and choose the matching asset name.</p>
+        <table>
+          <thead><tr><th>Platform / architecture</th><th>Asset to download</th><th>Install command or note</th></tr></thead>
+          <tbody>
+            <tr><td data-label="Platform"><span class="pill">macOS</span><br>Apple Silicon / arm64</td><td data-label="Asset"><a class="download-link" href="https://github.com/pat229988/Cross-SCP/releases/download/v1.0.0/CrossSCP-v1.0.0-macos-arm64.dmg">CrossSCP-v1.0.0-macos-arm64.dmg</a></td><td data-label="Install">Recommended tester command:<br><code>curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/install-macos.sh | bash</code></td></tr>
+            <tr><td data-label="Platform"><span class="pill">Windows</span><br>x64</td><td data-label="Asset"><a class="download-link" href="https://github.com/pat229988/Cross-SCP/releases/download/v1.0.0/CrossSCP-v1.0.0-windows-x64-setup.exe">CrossSCP-v1.0.0-windows-x64-setup.exe</a><br><a class="download-link" href="https://github.com/pat229988/Cross-SCP/releases/download/v1.0.0/CrossSCP-v1.0.0-windows-x64-portable.zip">CrossSCP-v1.0.0-windows-x64-portable.zip</a></td><td data-label="Install">Use setup EXE for normal install. Portable ZIP requires no installer. SmartScreen may warn until builds are Authenticode signed.</td></tr>
+            <tr><td data-label="Platform"><span class="pill">Fedora</span><br>x86_64</td><td data-label="Asset"><a class="download-link" href="https://github.com/pat229988/Cross-SCP/releases/download/v1.0.0/CrossSCP-v1.0.0-fedora-x86_64.rpm">CrossSCP-v1.0.0-fedora-x86_64.rpm</a></td><td data-label="Install"><code>sudo dnf install ./CrossSCP-v1.0.0-fedora-x86_64.rpm</code></td></tr>
+            <tr><td data-label="Platform"><span class="pill">Ubuntu / Debian</span><br>amd64</td><td data-label="Asset"><a class="download-link" href="https://github.com/pat229988/Cross-SCP/releases/download/v1.0.0/CrossSCP-v1.0.0-ubuntu-amd64.deb">CrossSCP-v1.0.0-ubuntu-amd64.deb</a></td><td data-label="Install"><code>sudo apt install ./CrossSCP-v1.0.0-ubuntu-amd64.deb</code></td></tr>
+            <tr><td data-label="Platform"><span class="pill">Linux Flatpak</span><br>x86_64</td><td data-label="Asset"><a class="download-link" href="https://github.com/pat229988/Cross-SCP/releases/download/v1.0.0/CrossSCP-v1.0.0-linux-x86_64.flatpak">CrossSCP-v1.0.0-linux-x86_64.flatpak</a></td><td data-label="Install"><code>flatpak install --user ./CrossSCP-v1.0.0-linux-x86_64.flatpak</code></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="card">
+        <h2>macOS one-line tester install</h2>
+        <p>This is the easiest free macOS path while CrossSCP is unsigned/not notarized:</p>
+        <pre><code>curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/install-macos.sh | bash</code></pre>
+      </section>
+
+      <section class="card">
+        <h2>Trust and troubleshooting</h2>
+        <p>Beta packages may show macOS Gatekeeper, Windows SmartScreen, or Linux unsigned package warnings. Read the install guide before distributing links to users.</p>
+        <div class="actions"><a class="button" href="install.html">Open install guide</a><a class="button secondary" href="https://github.com/pat229988/Cross-SCP/issues">Report an issue</a></div>
+      </section>
+    </main>
+    <footer><span>© CrossSCP contributors. AGPL-3.0-or-later.</span><span><a href="index.html">Back to home</a></span></footer>
+  </div>
+</body>
+</html>

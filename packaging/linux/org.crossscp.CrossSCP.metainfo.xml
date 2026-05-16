@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.crossscp.CrossSCP</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-or-later</project_license>
+  <name>CrossSCP</name>
+  <summary>Cross-platform file transfer client</summary>
+  <description>
+    <p>CrossSCP is a Qt desktop shell for cross-platform SCP/SFTP-style file transfer workflows.</p>
+  </description>
+  <launchable type="desktop-id">org.crossscp.CrossSCP.desktop</launchable>
+  <categories>
+    <category>Network</category>
+    <category>FileTransfer</category>
+  </categories>
+  <url type="homepage">https://pat229988.github.io/Cross-SCP/</url>
+  <releases>
+    <release version="0.1.0" date="2026-05-14" />
+  </releases>
+</component>

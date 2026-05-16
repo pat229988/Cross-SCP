@@ -1,0 +1,162 @@
+name: Release Linux
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: release-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ubuntu-deb:
+    name: Build Ubuntu DEB
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Qt packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build dpkg-dev pkg-config libssl-dev zlib1g-dev qt6-base-dev qt6-declarative-dev qt6-tools-dev qt6-tools-dev-tools libgl1-mesa-dev libxkbcommon-dev
+      - name: Export release metadata
+        run: scripts/release-metadata.sh ubuntu amd64
+      - name: Configure GUI DEB package
+        run: cmake -S . -B build/ubuntu-deb -G Ninja -DCROSSSCP_BUILD_GUI=ON -DCROSSSCP_PACKAGE_DEB=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build DEB package
+        run: cmake --build build/ubuntu-deb --target package --config Release
+      - name: Collect DEB package
+        run: |
+          mkdir -p "$CROSSSCP_DIST_DIR"
+          find build/ubuntu-deb -maxdepth 1 -type f -name '*.deb' -exec cp {} "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.deb" \;
+          DEB_PATH="$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.deb"
+          test -f "$DEB_PATH"
+          dpkg-deb -I "$DEB_PATH"
+          dpkg-deb -c "$DEB_PATH"
+          dpkg-deb -c "$DEB_PATH" | grep -q './usr/bin/CrossSCP'
+          dpkg-deb -c "$DEB_PATH" | grep -q './usr/bin/crossscp-cli'
+          scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
+          scripts/sign-linux-artifacts.sh "$CROSSSCP_DIST_DIR"
+        env:
+          LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
+          LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
+      - name: Upload Ubuntu DEB artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
+          path: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.deb
+            ${{ env.CROSSSCP_DIST_DIR }}/*.asc
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+      - name: Upload DEB to GitHub Release
+        if: ${{ github.ref_type == 'tag' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.deb
+            ${{ env.CROSSSCP_DIST_DIR }}/*.asc
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+
+  fedora-rpm:
+    name: Build Fedora RPM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install RPM packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build rpm pkg-config libssl-dev zlib1g-dev qt6-base-dev qt6-declarative-dev qt6-tools-dev qt6-tools-dev-tools libgl1-mesa-dev libxkbcommon-dev
+      - name: Export release metadata
+        run: scripts/release-metadata.sh fedora x86_64
+      - name: Configure GUI RPM package
+        run: cmake -S . -B build/fedora-rpm -G Ninja -DCROSSSCP_BUILD_GUI=ON -DCROSSSCP_PACKAGE_RPM=ON -DCMAKE_BUILD_TYPE=Release
+      - name: Build RPM package
+        run: cmake --build build/fedora-rpm --target package --config Release
+      - name: Collect RPM package
+        run: |
+          mkdir -p "$CROSSSCP_DIST_DIR"
+          find build/fedora-rpm -maxdepth 1 -type f -name '*.rpm' -exec cp {} "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.rpm" \;
+          RPM_PATH="$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.rpm"
+          test -f "$RPM_PATH"
+          rpm -qip "$RPM_PATH"
+          rpm -qlp "$RPM_PATH"
+          rpm -qlp "$RPM_PATH" | grep -q '/usr/bin/CrossSCP'
+          rpm -qlp "$RPM_PATH" | grep -q '/usr/bin/crossscp-cli'
+          scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
+          scripts/sign-linux-artifacts.sh "$CROSSSCP_DIST_DIR"
+        env:
+          LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
+          LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
+      - name: Upload Fedora RPM artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
+          path: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.rpm
+            ${{ env.CROSSSCP_DIST_DIR }}/*.asc
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+      - name: Upload RPM to GitHub Release
+        if: ${{ github.ref_type == 'tag' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.rpm
+            ${{ env.CROSSSCP_DIST_DIR }}/*.asc
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+  flatpak:
+    name: Build Flatpak bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder appstream
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub org.kde.Platform//6.7 org.kde.Sdk//6.7
+          sudo flatpak install -y flathub org.freedesktop.Sdk.Extension.rust-stable//23.08
+      - name: Export release metadata
+        run: CROSSSCP_ARTIFACT_OS=linux scripts/release-metadata.sh flatpak x86_64
+      - name: Build Flatpak bundle
+        run: |
+          mkdir -p "$CROSSSCP_DIST_DIR"
+          flatpak-builder --force-clean --repo=build/flatpak-repo build/flatpak packaging/linux/flatpak/org.crossscp.CrossSCP.yml
+          test -x build/flatpak/files/bin/CrossSCP
+          test -x build/flatpak/files/bin/crossscp-cli
+          flatpak build-bundle --runtime-repo=https://flathub.org/repo/flathub.flatpakrepo build/flatpak-repo "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.flatpak" org.crossscp.CrossSCP
+          test -f "$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.flatpak"
+          scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR"
+          scripts/sign-linux-artifacts.sh "$CROSSSCP_DIST_DIR"
+        env:
+          LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
+          LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
+      - name: Upload Flatpak artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
+          path: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.flatpak
+            ${{ env.CROSSSCP_DIST_DIR }}/*.asc
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+      - name: Upload Flatpak to GitHub Release
+        if: ${{ github.ref_type == 'tag' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            ${{ env.CROSSSCP_DIST_DIR }}/*.flatpak
+            ${{ env.CROSSSCP_DIST_DIR }}/*.asc
+            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
