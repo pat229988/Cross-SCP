@@ -41,6 +41,10 @@ cmake --build build/gui --target package --config Release
 
 ## Release blockers
 
+- Nightly/dev test packages are built by `.github/workflows/package-nightly.yml`
+  on pushes to `dev`.
+- Public release package workflows run from `main` and upload assets only for
+  version tags such as `v1.0.0`.
 - Linux repository distribution is not finalized (APT/PPA, COPR/RPM repo, Flathub).
 - Public trust requires signing/notarization secrets; see `packaging/SIGNING.md`.
 - License inventory must be reviewed with `cargo deny` or equivalent, and Qt
