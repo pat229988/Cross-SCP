@@ -51,6 +51,14 @@ if(UNIX AND NOT APPLE AND CROSSSCP_BUILD_GUI)
     DESTINATION share/icons/hicolor/512x512/apps
     RENAME org.crossscp.CrossSCP.png
   )
+  install(FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+    "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY_NOTICES.md"
+    DESTINATION share/doc/crossscp
+  )
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/LICENSES"
+    DESTINATION share/doc/crossscp
+  )
 endif()
 
 if(APPLE)

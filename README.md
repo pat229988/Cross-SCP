@@ -32,7 +32,23 @@ curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/ins
 ```
 
 See [`docs/INSTALLATION.md`](docs/INSTALLATION.md) for macOS Gatekeeper details,
-Windows/Linux install notes, and release trust expectations.
+Windows SmartScreen notes, Linux install/uninstall cleanup, and release trust
+expectations.
+
+## Licensing and Qt runtime
+
+CrossSCP's own code is licensed `AGPL-3.0-or-later`. The Qt GUI uses Qt 6 as a
+dynamically linked third-party runtime. This project does not assume a
+commercial Qt license; GUI release packages must include third-party notices,
+Qt source links, and preserve users' ability to replace compatible Qt shared
+libraries. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and
+[`LICENSES/QT-LGPL-COMPLIANCE.md`](LICENSES/QT-LGPL-COMPLIANCE.md).
+
+Linux cleanup helper:
+
+```bash
+bash scripts/uninstall-linux.sh --dry-run
+```
 
 ### Local package build
 

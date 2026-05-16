@@ -37,6 +37,11 @@ if ($LASTEXITCODE -ne 0) {
     throw "windeployqt failed with exit code $LASTEXITCODE"
 }
 
+$LegalDir = Join-Path $DeployDir "Legal"
+New-Item -ItemType Directory -Force -Path $LegalDir | Out-Null
+Copy-Item -Path "LICENSE", "THIRD_PARTY_NOTICES.md" -Destination $LegalDir -Force
+Copy-Item -Path "LICENSES" -Destination $LegalDir -Recurse -Force
+
 function Copy-IfPresent {
     param([string]$Source, [string]$DestinationDirectory)
     if (Test-Path $Source) {
@@ -101,6 +106,8 @@ function Assert-DeployedFile {
     "Qt6Quick.dll",
     "vcruntime140.dll",
     "msvcp140.dll",
+    "Legal\THIRD_PARTY_NOTICES.md",
+    "Legal\LICENSES\QT-LGPL-COMPLIANCE.md",
     "platforms\qwindows.dll"
 ) | ForEach-Object { Assert-DeployedFile $_ }
 

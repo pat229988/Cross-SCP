@@ -741,10 +741,14 @@ ApplicationWindow {
                 spacing: 10
                 Image {
                     Layout.alignment: Qt.AlignHCenter
-                    source: "qrc:/qt/qml/CrossSCP/resources/icons/crossscp-256.png"
+                    source: "qrc:/qt/qml/CrossSCP/resources/icons/crossscp-1024.png"
+                    sourceSize.width: 224
+                    sourceSize.height: 224
                     width: 56
                     height: 56
                     fillMode: Image.PreserveAspectFit
+                    smooth: true
+                    mipmap: true
                 }
                 Label { Layout.alignment: Qt.AlignHCenter; text: qsTr("CrossSCP"); font.pixelSize: 24; font.bold: true }
                 Label {

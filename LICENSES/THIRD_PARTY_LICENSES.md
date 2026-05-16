@@ -15,3 +15,13 @@ When adding a dependency, record:
 - AGPL compatibility notes.
 - Security/update policy.
 - Replacement alternatives considered.
+
+## GUI Runtime
+
+CrossSCP's GUI uses Qt 6 dynamically linked at runtime. Open-source Qt is
+available under LGPL/GPL terms, with commercial licensing available from The Qt
+Company. CrossSCP does not assume a commercial Qt license.
+
+Qt LGPL compliance requirements and relinking/replacement expectations are
+documented in `LICENSES/QT-LGPL-COMPLIANCE.md` and `THIRD_PARTY_NOTICES.md`.
+Release artifacts should include those files alongside this inventory.

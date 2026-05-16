@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Windows SmartScreen Run anyway illustration</title>
+  <desc id="desc">Illustrative Windows SmartScreen warning after More info, showing Run anyway button.</desc>
+  <defs><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="28" stdDeviation="34" flood-color="#000" flood-opacity="0.4"/></filter></defs>
+  <rect width="1200" height="760" fill="#0f172a"/>
+  <rect x="248" y="118" width="704" height="524" rx="8" fill="#0b5cab" filter="url(#shadow)"/>
+  <text x="316" y="210" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="600" fill="#fff">Windows protected your PC</text>
+  <text x="316" y="282" font-family="Segoe UI, Arial, sans-serif" font-size="20" fill="#e0f2fe">Microsoft Defender SmartScreen prevented an unrecognized app from starting.</text>
+  <text x="316" y="318" font-family="Segoe UI, Arial, sans-serif" font-size="20" fill="#e0f2fe">Only continue if you trust this CrossSCP download.</text>
+  <text x="316" y="392" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600" fill="#fff">App:</text>
+  <text x="382" y="392" font-family="Segoe UI, Arial, sans-serif" font-size="20" fill="#e0f2fe">CrossSCP setup</text>
+  <text x="316" y="428" font-family="Segoe UI, Arial, sans-serif" font-size="20" font-weight="600" fill="#fff">Publisher:</text>
+  <text x="420" y="428" font-family="Segoe UI, Arial, sans-serif" font-size="20" fill="#e0f2fe">Unknown publisher</text>
+  <rect x="602" y="560" width="138" height="44" rx="3" fill="#dbeafe"/>
+  <text x="671" y="589" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="18" fill="#0f172a">Run anyway</text>
+  <rect x="770" y="560" width="120" height="44" rx="3" fill="#dbeafe"/>
+  <text x="830" y="589" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="18" fill="#0f172a">Don’t run</text>
+</svg>

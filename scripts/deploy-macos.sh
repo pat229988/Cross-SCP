@@ -37,6 +37,9 @@ fi
 
 mkdir -p "${APP_PATH}/Contents/Resources"
 cp "${VOLUME_ICON}" "${APP_PATH}/Contents/Resources/CrossSCP.icns"
+mkdir -p "${APP_PATH}/Contents/Resources/Legal"
+cp LICENSE THIRD_PARTY_NOTICES.md "${APP_PATH}/Contents/Resources/Legal/"
+cp -R LICENSES "${APP_PATH}/Contents/Resources/Legal/"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile CrossSCP.icns" "${APP_PATH}/Contents/Info.plist" 2>/dev/null \
   || /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string CrossSCP.icns" "${APP_PATH}/Contents/Info.plist"
 touch "${APP_PATH}"
