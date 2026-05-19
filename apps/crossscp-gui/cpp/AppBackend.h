@@ -16,12 +16,14 @@ class AppBackend : public QObject {
   Q_OBJECT
   Q_PROPERTY(QString status READ status NOTIFY statusChanged)
   Q_PROPERTY(QString sessionsPath READ sessionsPath CONSTANT)
+  Q_PROPERTY(bool systemDarkMode READ systemDarkMode CONSTANT)
 
 public:
   explicit AppBackend(QObject *parent = nullptr);
 
   QString status() const;
   QString sessionsPath() const;
+  bool systemDarkMode() const;
 
   Q_INVOKABLE QStringList listSites();
   Q_INVOKABLE bool saveSite(const QString &name, const QString &host, int port,

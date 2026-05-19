@@ -471,6 +471,11 @@ where
         &self.backend
     }
 
+    #[must_use]
+    pub fn backend_mut(&mut self) -> &mut B {
+        &mut self.backend
+    }
+
     pub fn connect(&mut self) -> Result<(), SftpError> {
         self.backend.connect(&self.config)
     }

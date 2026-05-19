@@ -6,8 +6,10 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QGuiApplication>
 #include <QProcess>
 #include <QStandardPaths>
+#include <QStyleHints>
 #include <QUrl>
 
 AppBackend::AppBackend(QObject *parent) : QObject(parent) {
@@ -21,6 +23,14 @@ AppBackend::AppBackend(QObject *parent) : QObject(parent) {
 QString AppBackend::status() const { return status_; }
 
 QString AppBackend::sessionsPath() const { return sessionsPath_; }
+
+bool AppBackend::systemDarkMode() const {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+  return QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+#else
+  return false;
+#endif
+}
 
 QString AppBackend::cliPath() const { return resolveCliPath(); }
 
