@@ -37,6 +37,7 @@
     .pill { display:inline-flex; padding:5px 9px; border-radius:999px; font-size:12px; font-weight:850; color:#bbf7d0; background:rgba(34,197,94,.14); margin-bottom:8px; }
     .warn { color:#fde68a; background:rgba(245,158,11,.14); }
     .download-link { font-weight:800; text-decoration:none; }
+    .status { color:var(--soft); font-size:14px; margin-top:10px; }
     footer { margin-top:56px; padding-top:24px; border-top:1px solid var(--border); color:var(--soft); display:flex; justify-content:space-between; gap:18px; flex-wrap:wrap; }
     @media (max-width:860px) { nav,.hero { grid-template-columns:1fr; align-items:flex-start; flex-direction:column; } table, thead, tbody, th, td, tr { display:block; } thead { display:none; } tr { border-bottom:1px solid var(--border); } td { border-bottom:0; padding:10px 14px; } td::before { content:attr(data-label); display:block; color:#e2e8f0; font-size:12px; text-transform:uppercase; letter-spacing:.08em; margin-bottom:4px; } }
   </style>
@@ -60,15 +61,12 @@
 
       <section class="card">
         <h2>Recommended downloads</h2>
-        <p>Use the direct v1.0.0 links below after the public release is published. If a link is not available yet, open <a href="https://github.com/pat229988/Cross-SCP/releases/latest">the latest GitHub Release</a> and choose the matching asset name.</p>
+        <p>These links are generated from the latest public GitHub Release, so the version and asset URLs update automatically after a release is published.</p>
+        <p id="release-status" class="status">Loading latest release…</p>
         <table>
           <thead><tr><th>Platform / architecture</th><th>Asset to download</th><th>Install command or note</th></tr></thead>
-          <tbody>
-            <tr><td data-label="Platform"><span class="pill">macOS</span><br>Apple Silicon / arm64</td><td data-label="Asset"><a class="download-link" href="https://github.com/pat229988/Cross-SCP/releases/download/v1.0.0/CrossSCP-v1.0.0-macos-arm64.dmg">CrossSCP-v1.0.0-macos-arm64.dmg</a></td><td data-label="Install">Recommended tester command:<br><code>curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/install-macos.sh | bash</code></td></tr>
-            <tr><td data-label="Platform"><span class="pill">Windows</span><br>x64</td><td data-label="Asset"><a class="download-link" href="https://github.com/pat229988/Cross-SCP/releases/download/v1.0.0/CrossSCP-v1.0.0-windows-x64-setup.exe">CrossSCP-v1.0.0-windows-x64-setup.exe</a><br><a class="download-link" href="https://github.com/pat229988/Cross-SCP/releases/download/v1.0.0/CrossSCP-v1.0.0-windows-x64-portable.zip">CrossSCP-v1.0.0-windows-x64-portable.zip</a></td><td data-label="Install">Use setup EXE for normal install. Portable ZIP requires no installer. SmartScreen may warn until builds are Authenticode signed.</td></tr>
-            <tr><td data-label="Platform"><span class="pill">Fedora</span><br>x86_64</td><td data-label="Asset"><a class="download-link" href="https://github.com/pat229988/Cross-SCP/releases/download/v1.0.0/CrossSCP-v1.0.0-fedora-x86_64.rpm">CrossSCP-v1.0.0-fedora-x86_64.rpm</a></td><td data-label="Install"><code>sudo dnf install ./CrossSCP-v1.0.0-fedora-x86_64.rpm</code></td></tr>
-            <tr><td data-label="Platform"><span class="pill">Ubuntu / Debian</span><br>amd64</td><td data-label="Asset"><a class="download-link" href="https://github.com/pat229988/Cross-SCP/releases/download/v1.0.0/CrossSCP-v1.0.0-ubuntu-amd64.deb">CrossSCP-v1.0.0-ubuntu-amd64.deb</a></td><td data-label="Install"><code>sudo apt install ./CrossSCP-v1.0.0-ubuntu-amd64.deb</code></td></tr>
-            <tr><td data-label="Platform"><span class="pill">Linux Flatpak</span><br>x86_64</td><td data-label="Asset"><a class="download-link" href="https://github.com/pat229988/Cross-SCP/releases/download/v1.0.0/CrossSCP-v1.0.0-linux-x86_64.flatpak">CrossSCP-v1.0.0-linux-x86_64.flatpak</a></td><td data-label="Install"><code>flatpak install --user ./CrossSCP-v1.0.0-linux-x86_64.flatpak</code></td></tr>
+          <tbody id="download-rows">
+            <tr><td data-label="Platform" colspan="3">Loading latest release assets…</td></tr>
           </tbody>
         </table>
       </section>
@@ -76,7 +74,7 @@
       <section class="card">
         <h2>macOS one-line tester install</h2>
         <p>This is the easiest free macOS path while CrossSCP is unsigned/not notarized:</p>
-        <pre><code>curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/install-macos.sh | bash</code></pre>
+        <pre><code id="macos-install-command">curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/main/scripts/install-macos.sh | bash</code></pre>
       </section>
 
       <section class="card">
@@ -87,5 +85,44 @@
     </main>
     <footer><span>© CrossSCP contributors. AGPL-3.0-or-later.</span><span><a href="index.html">Back to home</a></span></footer>
   </div>
+  <script>
+    const releaseApi = 'https://api.github.com/repos/pat229988/Cross-SCP/releases/latest';
+    const releasePage = 'https://github.com/pat229988/Cross-SCP/releases/latest';
+    const rows = document.getElementById('download-rows');
+    const status = document.getElementById('release-status');
+    const macosInstall = document.getElementById('macos-install-command');
+
+    const downloads = [
+      { platform: '<span class="pill">macOS</span><br>Apple Silicon / arm64', suffixes: ['-macos-arm64.dmg'], install: tag => `Recommended tester command:<br><code>curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/main/scripts/install-macos.sh | CROSSSCP_VERSION=${tag} bash</code>` },
+      { platform: '<span class="pill">Windows</span><br>x64', suffixes: ['-windows-x64-setup.exe', '-windows-x64-portable.zip'], install: () => 'Use setup EXE for normal install. Portable ZIP requires no installer. SmartScreen may warn until builds are Authenticode signed.' },
+      { platform: '<span class="pill">Fedora</span><br>x86_64', suffixes: ['-fedora-x86_64.rpm'], install: tag => `<code>sudo dnf install ./CrossSCP-${tag}-fedora-x86_64.rpm</code>` },
+      { platform: '<span class="pill">Ubuntu / Debian</span><br>amd64', suffixes: ['-ubuntu-amd64.deb'], install: tag => `<code>sudo apt install ./CrossSCP-${tag}-ubuntu-amd64.deb</code>` },
+      { platform: '<span class="pill">Linux Flatpak</span><br>x86_64', suffixes: ['-linux-x86_64.flatpak'], install: tag => `<code>flatpak install --user ./CrossSCP-${tag}-linux-x86_64.flatpak</code>` }
+    ];
+
+    function assetLinks(assets, suffixes) {
+      return suffixes.map(suffix => {
+        const asset = assets.find(item => item.name.endsWith(suffix));
+        if (!asset) return `<span class="warn pill">Missing ${suffix}</span>`;
+        return `<a class="download-link" href="${asset.browser_download_url}">${asset.name}</a>`;
+      }).join('<br>');
+    }
+
+    fetch(releaseApi, { headers: { 'Accept': 'application/vnd.github+json' } })
+      .then(response => {
+        if (!response.ok) throw new Error(`GitHub API returned ${response.status}`);
+        return response.json();
+      })
+      .then(release => {
+        const tag = release.tag_name;
+        status.innerHTML = `Latest public release: <a href="${release.html_url}">${tag}</a>`;
+        macosInstall.textContent = `curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/main/scripts/install-macos.sh | CROSSSCP_VERSION=${tag} bash`;
+        rows.innerHTML = downloads.map(item => `<tr><td data-label="Platform">${item.platform}</td><td data-label="Asset">${assetLinks(release.assets || [], item.suffixes)}</td><td data-label="Install">${item.install(tag)}</td></tr>`).join('');
+      })
+      .catch(error => {
+        status.innerHTML = `Could not load latest release automatically. Open <a href="${releasePage}">the latest GitHub Release</a> and choose the matching asset. (${error.message})`;
+        rows.innerHTML = `<tr><td data-label="Platform" colspan="3"><a class="download-link" href="${releasePage}">Open latest GitHub Release</a></td></tr>`;
+      });
+  </script>
 </body>
 </html>
