@@ -3,6 +3,7 @@
 #pragma once
 
 #include <QAbstractListModel>
+#include <QProcess>
 
 #include "AppBackend.h"
 
@@ -10,7 +11,18 @@ class TransferQueueModel : public QAbstractListModel {
   Q_OBJECT
 
 public:
-  enum Roles { DirectionRole = Qt::UserRole + 1, SourceRole, DestinationRole, StateRole };
+  enum Roles {
+    DirectionRole = Qt::UserRole + 1,
+    SourceRole,
+    DestinationRole,
+    StateRole,
+    ProgressRole,
+    BytesDoneRole,
+    BytesTotalRole,
+    ErrorRole,
+    SpeedRole,
+    SpeedTextRole
+  };
 
   explicit TransferQueueModel(QObject *parent = nullptr);
 
@@ -20,7 +32,28 @@ public:
 
   Q_INVOKABLE void setBackend(AppBackend *backend);
   Q_INVOKABLE bool enqueueLocalCopy(const QString &source, const QString &destination);
+  Q_INVOKABLE bool enqueueSftpUpload(const QString &host, int port,
+                                     const QString &username,
+                                     const QString &password,
+                                     const QString &privateKeyPath,
+                                     const QString &privateKeyPassphrase,
+                                     const QString &source,
+                                     const QString &destination);
+  Q_INVOKABLE bool enqueueSftpDownload(const QString &host, int port,
+                                       const QString &username,
+                                       const QString &password,
+                                       const QString &privateKeyPath,
+                                       const QString &privateKeyPassphrase,
+                                       const QString &source,
+                                       const QString &destination);
   Q_INVOKABLE void clearFinished();
+  Q_INVOKABLE void clearAll();
+
+signals:
+  void transferCompleted(const QString &direction, const QString &source,
+                         const QString &destination);
+  void transferFailed(const QString &direction, const QString &source,
+                      const QString &destination, const QString &error);
 
 private:
   struct Job {
@@ -28,8 +61,39 @@ private:
     QString source;
     QString destination;
     QString state;
+    int progress = 0;
+    qlonglong bytesDone = 0;
+    qlonglong bytesTotal = 0;
+    qlonglong speedBytesPerSecond = 0;
+    qint64 startedAtMs = 0;
+    QString error;
+    QStringList arguments;
+    QString password;
+    QString privateKeyPath;
+    QString privateKeyPassphrase;
   };
+
+  bool enqueueSftpTransfer(const QString &direction, const QString &host, int port,
+                           const QString &username, const QString &password,
+                           const QString &privateKeyPath,
+                           const QString &privateKeyPassphrase,
+                           const QString &source, const QString &destination);
+  void startNextQueuedTransfer();
+  void startCurrentProcess();
+  void consumeProgressOutput();
+  void processProgressLine(const QString &line);
+  void finishCurrentProcess(int exitCode, QProcess::ExitStatus exitStatus);
+  void failCurrentProcess(const QString &error);
+  void updateRow(int row);
+  void markRowFailed(int row, const QString &error);
+  QString formatBytes(qlonglong bytes) const;
+  QString formatSpeed(qlonglong bytesPerSecond) const;
 
   QList<Job> jobs_;
   AppBackend *backend_ = nullptr;
+  QProcess *currentProcess_ = nullptr;
+  int currentRow_ = -1;
+  QByteArray progressBuffer_;
+  QByteArray errorOutput_;
+  QByteArray standardOutput_;
 };

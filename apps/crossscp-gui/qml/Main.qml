@@ -30,10 +30,43 @@ ApplicationWindow {
     property var scannedSshKeys: []
     property var selectedLocalItems: []
     property var selectedRemoteItems: []
+    property bool logsNeedHorizontalScroll: false
+    property string activeHost: ""
+    property int activePort: 22
+    property string activeUsername: ""
+    property string activePassword: ""
+    property string activePrivateKeyPath: ""
+    property string activePrivateKeyPassphrase: ""
+    property bool darkMode: false
+    property color themeWindow: darkMode ? "#121212" : "#ffffff"
+    property color themePanel: darkMode ? "#1e1e1e" : "#ffffff"
+    property color themeRaised: darkMode ? "#262626" : "#f5f5f5"
+    property color themeText: darkMode ? "#f5f5f5" : "#111111"
+    property color themeMuted: darkMode ? "#d4d4d4" : "#333333"
+    property color themeSubtle: darkMode ? "#a3a3a3" : "#666666"
+    property color themeBorder: darkMode ? "#404040" : "#d0d0d0"
+    property color themeButton: darkMode ? "#303030" : "#f3f3f3"
+    property color themeError: darkMode ? "#fca5a5" : "#b00020"
+    property color themeHeader: themePanel
+    property color themeHeaderText: themeText
+
+    color: themeWindow
+    palette.window: themeWindow
+    palette.windowText: themeText
+    palette.base: themePanel
+    palette.alternateBase: themeRaised
+    palette.text: themeText
+    palette.button: themeButton
+    palette.buttonText: themeText
+    palette.highlight: darkMode ? "#2563eb" : "#0b6bcb"
+    palette.highlightedText: "#ffffff"
 
     function addLog(message) {
         var now = new Date()
         sessionLogModel.append({ timestamp: now.toLocaleTimeString(), message: message })
+        if (message.length > 120) {
+            logsNeedHorizontalScroll = true
+        }
         if (sessionLogModel.count > 250) {
             sessionLogModel.remove(0)
         }
@@ -89,6 +122,7 @@ ApplicationWindow {
         selectedLocalItems = []
         selectedLocalPath = ""
         selectedLocalName = ""
+        selectedLocalIsDirectory = false
         transferLocalPath = ""
     }
 
@@ -96,6 +130,7 @@ ApplicationWindow {
         selectedRemoteItems = []
         selectedRemotePath = ""
         selectedRemoteName = ""
+        selectedRemoteIsDirectory = false
         transferRemotePath = ""
     }
 
@@ -158,21 +193,24 @@ ApplicationWindow {
     }
 
     function performUpload() {
+        if (!remoteModel.connected) {
+            statusText = qsTr("Connect to SFTP before uploading")
+            return
+        }
         if (selectedLocalItems.length > 0) {
-            var uploaded = 0
+            var queuedUploads = 0
             var baseRemotePath = selectedRemoteIsDirectory && selectedRemotePath.length > 0 ? selectedRemotePath : remoteModel.path
             for (var i = 0; i < selectedLocalItems.length; i++) {
                 var item = selectedLocalItems[i]
                 var destination = joinRemotePath(baseRemotePath, item.name)
-                if (remoteModel.uploadFile(item.path, destination)) {
-                    uploaded++
-                    addLog(qsTr("Uploaded %1 → %2").arg(item.path).arg(destination))
+                if (queueModel.enqueueSftpUpload(activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, item.path, destination)) {
+                    queuedUploads++
+                    addLog(qsTr("Queued upload %1 → %2").arg(item.path).arg(destination))
                 } else {
-                    addLog(qsTr("Upload failed: %1").arg(item.path))
+                    addLog(qsTr("Upload queue failed: %1").arg(item.path))
                 }
             }
-            remoteModel.refresh()
-            statusText = qsTr("Uploaded %1 of %2 selected items").arg(uploaded).arg(selectedLocalItems.length)
+            statusText = qsTr("Queued %1 of %2 selected uploads").arg(queuedUploads).arg(selectedLocalItems.length)
             return
         }
         var localPath = root.transferLocalPath.length > 0 ? root.transferLocalPath : root.selectedLocalPath
@@ -181,28 +219,31 @@ ApplicationWindow {
             return
         }
         var remotePath = root.prepareUploadRemotePath(localPath)
-        if (remoteModel.uploadFile(localPath, remotePath)) {
+        if (queueModel.enqueueSftpUpload(activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, localPath, remotePath)) {
             root.transferRemotePath = remotePath
-            statusText = qsTr("Uploaded %1").arg(localPath)
-            addLog(qsTr("Uploaded %1 → %2").arg(localPath).arg(remotePath))
+            statusText = qsTr("Queued upload %1").arg(localPath)
+            addLog(qsTr("Queued upload %1 → %2").arg(localPath).arg(remotePath))
         }
     }
 
     function performDownload() {
+        if (!remoteModel.connected) {
+            statusText = qsTr("Connect to SFTP before downloading")
+            return
+        }
         if (selectedRemoteItems.length > 0) {
-            var downloaded = 0
+            var queuedDownloads = 0
             for (var i = 0; i < selectedRemoteItems.length; i++) {
                 var item = selectedRemoteItems[i]
                 var destination = joinLocalPath(leftModel.path, item.name)
-                if (remoteModel.downloadFile(item.path, destination)) {
-                    downloaded++
-                    addLog(qsTr("Downloaded %1 → %2").arg(item.path).arg(destination))
+                if (queueModel.enqueueSftpDownload(activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, item.path, destination)) {
+                    queuedDownloads++
+                    addLog(qsTr("Queued download %1 → %2").arg(item.path).arg(destination))
                 } else {
-                    addLog(qsTr("Download failed: %1").arg(item.path))
+                    addLog(qsTr("Download queue failed: %1").arg(item.path))
                 }
             }
-            leftModel.refresh()
-            statusText = qsTr("Downloaded %1 of %2 selected items").arg(downloaded).arg(selectedRemoteItems.length)
+            statusText = qsTr("Queued %1 of %2 selected downloads").arg(queuedDownloads).arg(selectedRemoteItems.length)
             return
         }
         var remotePath = root.transferRemotePath.length > 0 ? root.transferRemotePath : root.selectedRemotePath
@@ -212,11 +253,10 @@ ApplicationWindow {
         }
         var localName = root.selectedRemoteName.length > 0 ? root.selectedRemoteName : root.fileNameFromPath(remotePath)
         var localPath = root.transferLocalPath.length > 0 ? root.transferLocalPath : root.joinLocalPath(leftModel.path, localName)
-        if (remoteModel.downloadFile(remotePath, localPath)) {
+        if (queueModel.enqueueSftpDownload(activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, remotePath, localPath)) {
             root.transferLocalPath = localPath
-            leftModel.refresh()
-            statusText = qsTr("Downloaded %1").arg(remotePath)
-            addLog(qsTr("Downloaded %1 → %2").arg(remotePath).arg(localPath))
+            statusText = qsTr("Queued download %1").arg(remotePath)
+            addLog(qsTr("Queued download %1 → %2").arg(remotePath).arg(localPath))
         }
     }
 
@@ -253,10 +293,46 @@ ApplicationWindow {
 
     ListModel { id: sessionLogModel }
 
-    AppBackend { id: backend }
+    AppBackend {
+        id: backend
+        Component.onCompleted: root.darkMode = systemDarkMode
+    }
     LocalFileModel { id: leftModel }
     RemoteFileModel { id: remoteModel; Component.onCompleted: setBackend(backend) }
     TransferQueueModel { id: queueModel; Component.onCompleted: setBackend(backend) }
+
+    Connections {
+        target: queueModel
+        function onTransferCompleted(direction, source, destination) {
+            if (direction === "Upload") {
+                remoteModel.refresh()
+            } else if (direction === "Download") {
+                leftModel.refresh()
+            }
+            root.statusText = qsTr("%1 completed: %2").arg(direction).arg(source)
+            root.addLog(qsTr("%1 completed %2 → %3").arg(direction).arg(source).arg(destination))
+        }
+        function onTransferFailed(direction, source, destination, error) {
+            root.statusText = qsTr("%1 failed: %2").arg(direction).arg(error)
+            root.addLog(qsTr("%1 failed %2 → %3: %4").arg(direction).arg(source).arg(destination).arg(error))
+        }
+    }
+
+    Connections {
+        target: leftModel
+        function onPathChanged() {
+            root.clearLocalSelection()
+            root.clearRemoteSelection()
+        }
+    }
+
+    Connections {
+        target: remoteModel
+        function onPathChanged() {
+            root.clearLocalSelection()
+            root.clearRemoteSelection()
+        }
+    }
 
     FileDialog {
         id: privateKeyFileDialog
@@ -278,7 +354,7 @@ ApplicationWindow {
                 text: root.newFolderRemote ? qsTr("Create a folder in %1").arg(remoteModel.path) : qsTr("Create a folder in %1").arg(leftModel.path)
                 wrapMode: Text.WordWrap
             }
-            TextField {
+            ThemedTextField {
                 id: newFolderNameField
                 Layout.fillWidth: true
                 placeholderText: qsTr("Folder name")
@@ -318,7 +394,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 text: root.deleteTargetPath
                 wrapMode: Text.WrapAnywhere
-                color: "#b00020"
+                color: root.themeError
             }
         }
         onAccepted: {
@@ -365,6 +441,7 @@ ApplicationWindow {
     }
 
     header: ToolBar {
+        background: Rectangle { color: root.themeRaised }
         RowLayout {
             anchors.fill: parent
             spacing: 10
@@ -392,6 +469,7 @@ ApplicationWindow {
                 text: qsTr("CrossSCP")
                 font.pixelSize: 18
                 font.bold: true
+                color: root.themeText
             }
 
             ToolButton {
@@ -414,8 +492,16 @@ ApplicationWindow {
                 enabled: remoteModel.connected
                 onClicked: {
                     remoteModel.disconnect()
+                    root.activeHost = ""
+                    root.activeUsername = ""
+                    root.activePassword = ""
+                    root.activePrivateKeyPath = ""
+                    root.activePrivateKeyPassphrase = ""
                     root.clearRemoteSelection()
                     root.transferRemotePath = ""
+                    queueModel.clearAll()
+                    sessionLogModel.clear()
+                    root.logsNeedHorizontalScroll = false
                     root.addLog(qsTr("Disconnected from remote SFTP session"))
                     statusText = qsTr("Disconnected")
                 }
@@ -429,27 +515,32 @@ ApplicationWindow {
                 Accessible.name: qsTr("Open About dialog")
             }
 
-            Label {
+            Item {
                 Layout.fillWidth: true
-                text: statusText
-                horizontalAlignment: Text.AlignRight
-                elide: Text.ElideRight
+            }
+
+            Switch {
+                id: themeSwitch
+                checked: root.darkMode
+                text: checked ? qsTr("Dark") : qsTr("Light")
+                onToggled: root.darkMode = checked
+                Accessible.name: qsTr("Toggle light and dark mode")
             }
         }
     }
 
-    ColumnLayout {
+    SplitView {
         anchors.fill: parent
-        spacing: 6
+        orientation: Qt.Vertical
 
         SplitView {
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            Layout.minimumHeight: 430
+            SplitView.fillWidth: true
+            SplitView.preferredHeight: 520
+            SplitView.minimumHeight: 260
             orientation: Qt.Horizontal
 
             FilePane {
-                SplitView.preferredWidth: root.width / 2
+                SplitView.preferredWidth: 640
                 SplitView.minimumWidth: 420
                 title: qsTr("Local")
                 subtitle: qsTr("Local filesystem")
@@ -458,7 +549,7 @@ ApplicationWindow {
             }
 
             RemotePane {
-                SplitView.preferredWidth: root.width / 2
+                SplitView.preferredWidth: 640
                 SplitView.minimumWidth: 520
                 title: remoteModel.connected ? qsTr("Remote SFTP") : qsTr("Remote SFTP")
                 subtitle: remoteModel.connected ? qsTr("Connected through Rust CLI SFTP bridge") : qsTr("Open Sites, choose password or SSH key auth, then Connect")
@@ -468,9 +559,9 @@ ApplicationWindow {
         }
 
         SplitView {
-            Layout.fillWidth: true
-            Layout.preferredHeight: 240
-            Layout.minimumHeight: 140
+            SplitView.fillWidth: true
+            SplitView.preferredHeight: 260
+            SplitView.minimumHeight: 120
             orientation: Qt.Vertical
 
             QueueStrip {
@@ -556,25 +647,25 @@ ApplicationWindow {
                 ComboBox { id: authMethodCombo; Layout.fillWidth: true; model: ["Password", "SSH Private Key"] }
 
                 Label { text: qsTr("Profile Name") }
-                TextField { id: siteNameField; Layout.fillWidth: true; placeholderText: qsTr("Production") }
+                ThemedTextField { id: siteNameField; Layout.fillWidth: true; placeholderText: qsTr("Production") }
 
                 Label { text: qsTr("Host") }
-                TextField { id: siteHostField; Layout.fillWidth: true; placeholderText: qsTr("sftp.example.com") }
+                ThemedTextField { id: siteHostField; Layout.fillWidth: true; placeholderText: qsTr("sftp.example.com") }
 
                 Label { text: qsTr("Port") }
                 SpinBox { id: sitePortField; from: 1; to: 65535; value: 22 }
 
                 Label { text: qsTr("Username") }
-                TextField { id: siteUsernameField; Layout.fillWidth: true; placeholderText: qsTr("alice") }
+                ThemedTextField { id: siteUsernameField; Layout.fillWidth: true; placeholderText: qsTr("alice") }
 
                 Label { text: qsTr("Remote Path") }
-                TextField { id: siteRemotePathField; Layout.fillWidth: true; text: "/" }
+                ThemedTextField { id: siteRemotePathField; Layout.fillWidth: true; text: "/" }
 
                 Label { text: qsTr("Credential Reference") }
-                TextField { id: siteCredentialRefField; Layout.fillWidth: true; placeholderText: qsTr("keychain://site-name") }
+                ThemedTextField { id: siteCredentialRefField; Layout.fillWidth: true; placeholderText: qsTr("keychain://site-name") }
 
                 Label { text: qsTr("Password (not saved)") }
-                TextField {
+                ThemedTextField {
                     id: sitePasswordField
                     Layout.fillWidth: true
                     enabled: authMethodCombo.currentText === "Password"
@@ -593,7 +684,7 @@ ApplicationWindow {
                         displayText: currentText.length > 0 ? root.fileNameFromPath(currentText) : qsTr("Scanned ~/.ssh keys")
                         onActivated: sitePrivateKeyField.text = currentText
                     }
-                    TextField {
+                    ThemedTextField {
                         id: sitePrivateKeyField
                         Layout.fillWidth: true
                         enabled: authMethodCombo.currentText === "SSH Private Key"
@@ -608,7 +699,7 @@ ApplicationWindow {
                 }
 
                 Label { text: qsTr("Key Passphrase") }
-                TextField {
+                ThemedTextField {
                     id: sitePrivateKeyPassphraseField
                     Layout.fillWidth: true
                     enabled: authMethodCombo.currentText === "SSH Private Key"
@@ -656,6 +747,12 @@ ApplicationWindow {
                             connected = remoteModel.connectPassword(siteHostField.text, sitePortField.value, siteUsernameField.text, sitePasswordField.text, siteRemotePathField.text)
                         }
                         if (connected) {
+                            root.activeHost = siteHostField.text.trim()
+                            root.activePort = sitePortField.value
+                            root.activeUsername = siteUsernameField.text.trim()
+                            root.activePassword = authMethodCombo.currentText === "Password" ? sitePasswordField.text : ""
+                            root.activePrivateKeyPath = authMethodCombo.currentText === "SSH Private Key" ? sitePrivateKeyField.text.trim() : ""
+                            root.activePrivateKeyPassphrase = authMethodCombo.currentText === "SSH Private Key" ? sitePrivateKeyPassphraseField.text : ""
                             root.addLog(qsTr("Connected to %1:%2 as %3").arg(siteHostField.text).arg(sitePortField.value).arg(siteUsernameField.text))
                             siteManagerDialog.close()
                         }
@@ -694,7 +791,31 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 model: queueModel
-                delegate: ItemDelegate { width: ListView.view.width; text: direction + ": " + source + " → " + destination + " [" + state + "]" }
+                clip: true
+                contentWidth: Math.max(width, 980)
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                delegate: Frame {
+                    width: Math.max(ListView.view.width, 980)
+                    height: 72
+                    RowLayout {
+                        anchors.fill: parent
+                        spacing: 10
+                        Label { Layout.preferredWidth: 90; text: direction; font.bold: true; elide: Text.ElideRight }
+                        Label { Layout.preferredWidth: 260; text: source; elide: Text.ElideMiddle }
+                        Label { Layout.preferredWidth: 260; text: destination; elide: Text.ElideMiddle }
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ProgressBar { Layout.fillWidth: true; from: 0; to: 100; value: progress; indeterminate: state.indexOf("Running") === 0 && progress === 0 && bytesTotal === 0 }
+                                Label { Layout.preferredWidth: 118; text: progress + "% · " + speedText; horizontalAlignment: Text.AlignRight; color: root.themeMuted }
+                            }
+                            Label { Layout.fillWidth: true; text: error.length > 0 ? state + " — " + error : state; color: error.length > 0 ? "#b00020" : "#555"; elide: Text.ElideRight }
+                        }
+                    }
+                }
                 Label {
                     anchors.centerIn: parent
                     visible: queueModel.rowCount() === 0
@@ -794,7 +915,7 @@ ApplicationWindow {
             Rectangle { Layout.fillWidth: true; height: 3; color: paneAccent }
 
             Label { text: title; font.pixelSize: 18; font.bold: true }
-            Label { Layout.fillWidth: true; text: subtitle; color: "#666"; elide: Text.ElideRight }
+            Label { Layout.fillWidth: true; text: subtitle; color: root.themeSubtle; elide: Text.ElideRight }
 
             RowLayout {
                 Layout.fillWidth: true
@@ -804,7 +925,7 @@ ApplicationWindow {
                     enabled: remoteFileModel.connected
                     onClicked: remoteFileModel.goUp()
                 }
-                TextField {
+                ThemedTextField {
                     Layout.fillWidth: true
                     text: remoteFileModel.path
                     selectByMouse: true
@@ -826,7 +947,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 visible: remoteFileModel.error.length > 0
                 text: remoteFileModel.error
-                color: "#b00020"
+                color: root.themeError
                 wrapMode: Text.WordWrap
             }
 
@@ -868,7 +989,7 @@ ApplicationWindow {
             Label {
                 Layout.fillWidth: true
                 text: root.selectedRemoteItems.length > 0 ? qsTr("Selected remote items: %1").arg(root.selectedRemoteItems.length) : (root.selectedRemotePath.length > 0 ? qsTr("Selected remote: %1").arg(root.selectedRemotePath) : qsTr("Select remote files to download, or double-click folders to open them."))
-                color: "#555"
+                color: root.themeMuted
                 elide: Text.ElideMiddle
             }
 
@@ -876,7 +997,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 columns: 2
                 Label { text: qsTr("Remote file") }
-                TextField {
+                ThemedTextField {
                     Layout.fillWidth: true
                     text: root.transferRemotePath
                     placeholderText: root.selectedRemotePath.length > 0 ? root.selectedRemotePath : root.joinRemotePath(remoteFileModel.path, root.selectedLocalName.length > 0 ? root.selectedLocalName : "file.txt")
@@ -930,12 +1051,12 @@ ApplicationWindow {
             Rectangle { Layout.fillWidth: true; height: 3; color: paneAccent }
 
             Label { text: title; font.pixelSize: 18; font.bold: true }
-            Label { Layout.fillWidth: true; text: subtitle; color: "#666"; elide: Text.ElideRight }
+            Label { Layout.fillWidth: true; text: subtitle; color: root.themeSubtle; elide: Text.ElideRight }
 
             RowLayout {
                 Layout.fillWidth: true
                 Button { text: qsTr("Up"); Layout.minimumWidth: 72; onClicked: fileModel.goUp() }
-                TextField {
+                ThemedTextField {
                     Layout.fillWidth: true
                     text: fileModel.path
                     selectByMouse: true
@@ -949,7 +1070,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 visible: fileModel.error.length > 0
                 text: fileModel.error
-                color: "#b00020"
+                color: root.themeError
                 wrapMode: Text.WordWrap
             }
 
@@ -991,7 +1112,7 @@ ApplicationWindow {
             Label {
                 Layout.fillWidth: true
                 text: root.selectedLocalItems.length > 0 ? qsTr("Selected local items: %1").arg(root.selectedLocalItems.length) : (root.selectedLocalPath.length > 0 ? qsTr("Selected local: %1").arg(root.selectedLocalPath) : qsTr("Select local files to upload, or double-click folders to open them."))
-                color: "#555"
+                color: root.themeMuted
                 elide: Text.ElideMiddle
             }
 
@@ -999,7 +1120,7 @@ ApplicationWindow {
                 Layout.fillWidth: true
                 columns: 2
                 Label { text: qsTr("Local file") }
-                TextField {
+                ThemedTextField {
                     Layout.fillWidth: true
                     text: root.transferLocalPath
                     placeholderText: root.selectedLocalPath.length > 0 ? root.selectedLocalPath : qsTr("Select a local file or type a path")
@@ -1049,7 +1170,7 @@ ApplicationWindow {
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("Current session transfer queue")
-                    color: "#666"
+                    color: root.themeSubtle
                     elide: Text.ElideRight
                 }
                 Button {
@@ -1064,28 +1185,91 @@ ApplicationWindow {
                 id: queueListView
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                orientation: ListView.Horizontal
-                spacing: 8
+                property int directionColumnWidth: 120
+                property int fromColumnWidth: Math.max(260, Math.floor((width - directionColumnWidth - statusColumnWidth - 44) / 2))
+                property int toColumnWidth: fromColumnWidth
+                property int statusColumnWidth: 360
+                property int tableWidth: Math.max(width, directionColumnWidth + fromColumnWidth + toColumnWidth + statusColumnWidth + 44)
+                spacing: 4
                 clip: true
                 model: queueModel
+                contentWidth: tableWidth
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-                delegate: Frame {
-                    width: 330
-                    height: ListView.view.height
+                header: Rectangle {
+                    width: queueListView.tableWidth
+                    height: 28
+                    color: root.themeHeader
                     RowLayout {
                         anchors.fill: parent
-                        Label { text: direction; font.bold: true }
-                        Label { Layout.fillWidth: true; text: source + " → " + destination; elide: Text.ElideMiddle }
-                        Label { text: state; color: "#555" }
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
+                        spacing: 10
+                        Label { Layout.preferredWidth: queueListView.directionColumnWidth; text: qsTr("Type"); font.bold: true; color: root.themeHeaderText }
+                        Label { Layout.preferredWidth: queueListView.fromColumnWidth; text: qsTr("From"); font.bold: true; color: root.themeHeaderText }
+                        Label { Layout.preferredWidth: queueListView.toColumnWidth; text: qsTr("To"); font.bold: true; color: root.themeHeaderText }
+                        Label { Layout.preferredWidth: queueListView.statusColumnWidth; text: qsTr("Status / Progress"); font.bold: true; color: root.themeHeaderText }
+                    }
+                }
+                delegate: Frame {
+                    width: queueListView.tableWidth
+                    height: 62
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: 8
+                        anchors.rightMargin: 8
+                        spacing: 10
+                        Label {
+                            Layout.preferredWidth: queueListView.directionColumnWidth
+                            text: direction
+                            font.bold: true
+                            elide: Text.ElideRight
+                        }
+                        Label {
+                            Layout.preferredWidth: queueListView.fromColumnWidth
+                            text: source
+                            elide: Text.ElideMiddle
+                        }
+                        Label {
+                            Layout.preferredWidth: queueListView.toColumnWidth
+                            text: destination
+                            elide: Text.ElideMiddle
+                        }
+                        ColumnLayout {
+                            Layout.preferredWidth: queueListView.statusColumnWidth
+                            spacing: 2
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ProgressBar {
+                                    Layout.fillWidth: true
+                                    from: 0
+                                    to: 100
+                                    value: progress
+                                    indeterminate: state.indexOf("Running") === 0 && progress === 0 && bytesTotal === 0
+                                }
+                                Label {
+                                    Layout.preferredWidth: 118
+                                    text: progress + "% · " + speedText
+                                    horizontalAlignment: Text.AlignRight
+                                    color: root.themeMuted
+                                }
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                text: error.length > 0 ? state + " — " + error : state
+                                color: error.length > 0 ? root.themeError : root.themeMuted
+                                elide: Text.ElideRight
+                            }
+                        }
                     }
                 }
                 Label {
                     anchors.centerIn: parent
-                    visible: queueModel.rowCount() === 0
+                    visible: queueModel.rowCount() === 0 && queueListView.count === 0
+                    z: 10
                     text: qsTr("No active queued transfers")
-                    color: "#777"
+                    color: root.themeSubtle
                 }
             }
         }
@@ -1101,12 +1285,15 @@ ApplicationWindow {
                 Label {
                     Layout.fillWidth: true
                     text: qsTr("Records modifications for this app session only")
-                    color: "#666"
+                    color: root.themeSubtle
                     elide: Text.ElideRight
                 }
                 Button {
                     text: qsTr("Clear Logs")
-                    onClicked: sessionLogModel.clear()
+                    onClicked: {
+                        sessionLogModel.clear()
+                        root.logsNeedHorizontalScroll = false
+                    }
                 }
             }
             ListView {
@@ -1115,22 +1302,23 @@ ApplicationWindow {
                 Layout.fillHeight: true
                 clip: true
                 model: sessionLogModel
-                contentWidth: Math.max(width, 1200)
+                contentWidth: root.logsNeedHorizontalScroll ? Math.max(width, 1200) : width
                 boundsBehavior: Flickable.StopAtBounds
                 ScrollBar.horizontal: ScrollBar { policy: ScrollBar.AsNeeded }
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
                 onCountChanged: if (count > 0) positionViewAtEnd()
                 delegate: Label {
                     id: logText
-                    width: Math.max(logListView.width, implicitWidth + 24)
+                    width: logListView.contentWidth
                     text: timestamp + "  " + message
-                    color: "#333"
+                    color: root.themeText
+                    elide: root.logsNeedHorizontalScroll ? Text.ElideNone : Text.ElideRight
                 }
                 Label {
                     anchors.centerIn: parent
                     visible: sessionLogModel.count === 0
                     text: qsTr("No modifications yet")
-                    color: "#777"
+                    color: root.themeSubtle
                 }
             }
         }
@@ -1158,6 +1346,19 @@ ApplicationWindow {
                 elide: Text.ElideRight
                 color: actionButton.enabled ? actionButton.palette.buttonText : actionButton.palette.mid
             }
+        }
+    }
+
+    component ThemedTextField: TextField {
+        color: root.themeText
+        placeholderTextColor: root.themeSubtle
+        selectedTextColor: "#ffffff"
+        selectionColor: root.palette.highlight
+        background: Rectangle {
+            color: root.themePanel
+            border.color: root.themeBorder
+            border.width: 1
+            radius: 4
         }
     }
 }

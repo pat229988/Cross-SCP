@@ -8,6 +8,10 @@ use crossscp_core::{MaskDecision, MaskSet, SessionProfile, SessionProtocol};
 use crossscp_protocol_local::LocalFileSystem;
 use crossscp_protocol_sftp::LiveSftpTestConfig;
 use crossscp_transfer::{OverwriteMode, TransferDirection, TransferOptions, TransferQueue};
+#[cfg(feature = "ssh2-backend")]
+use std::io::Write;
+#[cfg(feature = "ssh2-backend")]
+use std::time::Duration;
 
 #[cfg(feature = "ssh2-backend")]
 use crossscp_protocol_sftp::ssh2_backend::Ssh2Backend;
@@ -267,13 +271,27 @@ fn run_sftp_transfer(args: Vec<String>, kind: SftpTransferKind) {
         Err(error) => exit_error(&format!("sftp transfer failed: {error}"), 1),
     };
     let result = match kind {
-        SftpTransferKind::Upload => adapter.upload_file(&args[3], &args[4]),
-        SftpTransferKind::Download => adapter.download_file(&args[3], &args[4]),
+        SftpTransferKind::Upload => adapter.backend_mut().upload_file_with_progress(
+            &args[3],
+            &args[4],
+            print_transfer_progress,
+        ),
+        SftpTransferKind::Download => adapter.backend_mut().download_file_with_progress(
+            &args[3],
+            &args[4],
+            print_transfer_progress,
+        ),
     };
     match result {
         Ok(progress) => print_sftp_progress(progress),
         Err(error) => exit_error(&format!("sftp transfer failed: {error}"), 1),
     }
+}
+
+#[cfg(feature = "ssh2-backend")]
+fn print_transfer_progress(bytes_done: u64, bytes_total: Option<u64>) {
+    eprintln!("progress\t{bytes_done}\t{}", bytes_total.unwrap_or(0));
+    let _ = std::io::stderr().flush();
 }
 
 #[cfg(feature = "ssh2-backend")]
@@ -353,9 +371,19 @@ fn connect_sftp(
         credential_ref: Some(reference),
     };
     let auth = resolve_sftp_credentials(&config, &credentials)?;
-    let mut adapter = SftpAdapter::new(config, Ssh2Backend::new(auth));
+    let mut adapter = SftpAdapter::new(config, Ssh2Backend::new(auth).with_timeout(sftp_timeout()));
     adapter.connect()?;
     Ok(adapter)
+}
+
+#[cfg(feature = "ssh2-backend")]
+fn sftp_timeout() -> Duration {
+    std::env::var("CROSSSCP_SFTP_TIMEOUT_SECS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|seconds| *seconds > 0)
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(300))
 }
 
 #[cfg(feature = "ssh2-backend")]

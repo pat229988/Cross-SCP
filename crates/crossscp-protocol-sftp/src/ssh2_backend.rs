@@ -3,6 +3,7 @@
 //! Optional `ssh2`/libssh2 backend candidate for the first live SFTP POC.
 
 use std::fs;
+use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -26,7 +27,7 @@ impl Ssh2Backend {
     pub fn new(auth: SftpAuthMaterial) -> Self {
         Self {
             auth,
-            timeout: Duration::from_secs(10),
+            timeout: Duration::from_secs(300),
             session: None,
         }
     }
@@ -35,6 +36,115 @@ impl Ssh2Backend {
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
+    }
+
+    pub fn upload_file_with_progress<F>(
+        &mut self,
+        local_path: &str,
+        remote_path: &str,
+        mut report_progress: F,
+    ) -> Result<SftpFileProgress, SftpError>
+    where
+        F: FnMut(u64, Option<u64>),
+    {
+        let session = self.session.as_ref().ok_or(SftpError::NotConnected)?;
+        let local_metadata = fs::metadata(local_path)?;
+        let sftp = session.sftp()?;
+        let destination = resolve_upload_destination(&sftp, local_path, remote_path);
+        if local_metadata.is_dir() {
+            let bytes_total = local_directory_size(Path::new(local_path))?;
+            let mut bytes_done = 0;
+            report_progress(0, Some(bytes_total));
+            upload_directory_recursive_with_progress(
+                &sftp,
+                Path::new(local_path),
+                &destination,
+                bytes_total,
+                &mut bytes_done,
+                &mut report_progress,
+            )?;
+            return Ok(SftpFileProgress {
+                source: local_path.to_string(),
+                destination,
+                bytes_done,
+                bytes_total: Some(bytes_total),
+            });
+        }
+        let mut remote_file = create_remote_file_for_replace(&sftp, &destination)?;
+        let mut local_file = fs::File::open(local_path)?;
+        let bytes_total = local_metadata.len();
+        let bytes_done = copy_with_progress(
+            &mut local_file,
+            &mut remote_file,
+            Some(bytes_total),
+            &mut report_progress,
+        )?;
+
+        Ok(SftpFileProgress {
+            source: local_path.to_string(),
+            destination,
+            bytes_done,
+            bytes_total: Some(bytes_total),
+        })
+    }
+
+    pub fn download_file_with_progress<F>(
+        &mut self,
+        remote_path: &str,
+        local_path: &str,
+        mut report_progress: F,
+    ) -> Result<SftpFileProgress, SftpError>
+    where
+        F: FnMut(u64, Option<u64>),
+    {
+        let session = self.session.as_ref().ok_or(SftpError::NotConnected)?;
+        let sftp = session.sftp()?;
+        let remote_stat = sftp.stat(Path::new(remote_path)).ok();
+        if remote_stat
+            .as_ref()
+            .and_then(|stat| stat.perm)
+            .is_some_and(is_directory_perm)
+        {
+            let destination = resolve_download_directory_destination(remote_path, local_path);
+            let bytes_total = remote_directory_size(&sftp, remote_path)?;
+            let mut bytes_done = 0;
+            report_progress(0, Some(bytes_total));
+            download_directory_recursive_with_progress(
+                &sftp,
+                remote_path,
+                Path::new(&destination),
+                bytes_total,
+                &mut bytes_done,
+                &mut report_progress,
+            )?;
+            return Ok(SftpFileProgress {
+                source: remote_path.to_string(),
+                destination,
+                bytes_done,
+                bytes_total: Some(bytes_total),
+            });
+        }
+        if let Some(parent) = Path::new(local_path).parent() {
+            if !parent.as_os_str().is_empty() {
+                fs::create_dir_all(parent)?;
+            }
+        }
+        let mut remote_file = sftp.open(Path::new(remote_path))?;
+        let mut local_file = fs::File::create(local_path)?;
+        let bytes_total = remote_stat.and_then(|stat| stat.size);
+        let bytes_done = copy_with_progress(
+            &mut remote_file,
+            &mut local_file,
+            bytes_total,
+            &mut report_progress,
+        )?;
+
+        Ok(SftpFileProgress {
+            source: remote_path.to_string(),
+            destination: local_path.to_string(),
+            bytes_done,
+            bytes_total,
+        })
     }
 }
 
@@ -350,6 +460,91 @@ fn upload_directory_recursive(
     Ok(bytes_done)
 }
 
+fn local_directory_size(local_dir: &Path) -> Result<u64, SftpError> {
+    let mut bytes_total = 0;
+    for entry in fs::read_dir(local_dir)? {
+        let entry = entry?;
+        let metadata = entry.metadata()?;
+        if metadata.is_dir() {
+            bytes_total += local_directory_size(&entry.path())?;
+        } else if metadata.is_file() {
+            bytes_total += metadata.len();
+        }
+    }
+    Ok(bytes_total)
+}
+
+fn upload_directory_recursive_with_progress<F>(
+    sftp: &ssh2::Sftp,
+    local_dir: &Path,
+    remote_dir: &str,
+    bytes_total: u64,
+    bytes_done: &mut u64,
+    report_progress: &mut F,
+) -> Result<(), SftpError>
+where
+    F: FnMut(u64, Option<u64>),
+{
+    ensure_remote_directory(sftp, remote_dir)?;
+    for entry in fs::read_dir(local_dir)? {
+        let entry = entry?;
+        let local_path = entry.path();
+        let remote_path = remote_join(remote_dir, &entry.file_name().to_string_lossy());
+        let metadata = entry.metadata()?;
+        if metadata.is_dir() {
+            upload_directory_recursive_with_progress(
+                sftp,
+                &local_path,
+                &remote_path,
+                bytes_total,
+                bytes_done,
+                report_progress,
+            )?;
+        } else if metadata.is_file() {
+            let mut remote_file = create_remote_file_for_replace(sftp, &remote_path)?;
+            let mut local_file = fs::File::open(&local_path)?;
+            *bytes_done += copy_with_progress(
+                &mut local_file,
+                &mut remote_file,
+                Some(bytes_total),
+                &mut |file_bytes_done, _| {
+                    report_progress(*bytes_done + file_bytes_done, Some(bytes_total));
+                },
+            )?;
+            report_progress(*bytes_done, Some(bytes_total));
+        }
+    }
+    Ok(())
+}
+
+fn copy_with_progress<R, W, F>(
+    reader: &mut R,
+    writer: &mut W,
+    bytes_total: Option<u64>,
+    report_progress: &mut F,
+) -> Result<u64, SftpError>
+where
+    R: Read,
+    W: Write,
+    F: FnMut(u64, Option<u64>),
+{
+    let mut buffer = [0_u8; 256 * 1024];
+    let mut bytes_done = 0_u64;
+    report_progress(bytes_done, bytes_total);
+
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        writer.write_all(&buffer[..read])?;
+        bytes_done += read as u64;
+        report_progress(bytes_done, bytes_total);
+    }
+    writer.flush()?;
+    Ok(bytes_done)
+}
+
 fn download_directory_recursive(
     sftp: &ssh2::Sftp,
     remote_dir: &str,
@@ -376,6 +571,71 @@ fn download_directory_recursive(
         }
     }
     Ok(bytes_done)
+}
+
+fn remote_directory_size(sftp: &ssh2::Sftp, remote_dir: &str) -> Result<u64, SftpError> {
+    let mut bytes_total = 0;
+    for (entry_path, stat) in sftp.readdir(Path::new(remote_dir))? {
+        let name = entry_name(&entry_path);
+        if name == "." || name == ".." {
+            continue;
+        }
+        let remote_path = remote_join(remote_dir, &name);
+        if stat.perm.is_some_and(is_directory_perm) {
+            bytes_total += remote_directory_size(sftp, &remote_path)?;
+        } else {
+            bytes_total += stat.size.unwrap_or(0);
+        }
+    }
+    Ok(bytes_total)
+}
+
+fn download_directory_recursive_with_progress<F>(
+    sftp: &ssh2::Sftp,
+    remote_dir: &str,
+    local_dir: &Path,
+    bytes_total: u64,
+    bytes_done: &mut u64,
+    report_progress: &mut F,
+) -> Result<(), SftpError>
+where
+    F: FnMut(u64, Option<u64>),
+{
+    fs::create_dir_all(local_dir)?;
+    for (entry_path, stat) in sftp.readdir(Path::new(remote_dir))? {
+        let name = entry_name(&entry_path);
+        if name == "." || name == ".." {
+            continue;
+        }
+        let remote_path = remote_join(remote_dir, &name);
+        let local_path: PathBuf = local_dir.join(&name);
+        if stat.perm.is_some_and(is_directory_perm) {
+            download_directory_recursive_with_progress(
+                sftp,
+                &remote_path,
+                &local_path,
+                bytes_total,
+                bytes_done,
+                report_progress,
+            )?;
+        } else {
+            if let Some(parent) = local_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let mut remote_file = sftp.open(Path::new(&remote_path))?;
+            let mut local_file = fs::File::create(&local_path)?;
+            *bytes_done += copy_with_progress(
+                &mut remote_file,
+                &mut local_file,
+                Some(bytes_total),
+                &mut |file_bytes_done, _| {
+                    report_progress(*bytes_done + file_bytes_done, Some(bytes_total));
+                },
+            )?;
+            report_progress(*bytes_done, Some(bytes_total));
+        }
+    }
+    Ok(())
 }
 
 fn delete_remote_path_recursive(sftp: &ssh2::Sftp, remote_path: &str) -> Result<(), SftpError> {
