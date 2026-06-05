@@ -3,6 +3,7 @@
 #pragma once
 
 #include <QObject>
+#include <QProcess>
 #include <QString>
 #include <QStringList>
 
@@ -20,13 +21,14 @@ class AppBackend : public QObject {
 
 public:
   explicit AppBackend(QObject *parent = nullptr);
+  ~AppBackend() override;
 
   QString status() const;
   QString sessionsPath() const;
   bool systemDarkMode() const;
 
   Q_INVOKABLE QStringList listSites();
-  Q_INVOKABLE bool saveSite(const QString &name, const QString &host, int port,
+  Q_INVOKABLE bool saveSite(const QString &protocol, const QString &name, const QString &host, int port,
                             const QString &username,
                             const QString &remotePath,
                             const QString &credentialRef);
@@ -36,6 +38,28 @@ public:
   Q_INVOKABLE QStringList listSshPrivateKeys() const;
   Q_INVOKABLE QString localPathFromUrl(const QString &url) const;
   Q_INVOKABLE QString cliPath() const;
+  Q_INVOKABLE bool startSshTunnel(const QString &targetHost, int targetPort,
+                                  const QString &localHost, int localPort,
+                                  const QString &jumpUsername,
+                                  const QString &jumpHost, int jumpPort,
+                                  const QString &privateKeyPath,
+                                  const QString &jumpPassword);
+  Q_INVOKABLE bool startProxyJumpTunnel(const QString &targetHost, int targetPort,
+                                        const QString &localHost, int localPort,
+                                        const QString &finalUsername,
+                                        const QString &finalHost, int finalPort,
+                                        const QString &proxyJumpChain,
+                                        const QString &privateKeyPath,
+                                        const QString &jumpPassword);
+  Q_INVOKABLE bool startManagedNestedTunnel(const QString &targetHost, int targetPort,
+                                            const QString &localHost, int localPort,
+                                            const QString &hopSpecs,
+                                            const QString &finalUsername,
+                                            const QString &finalHost, int finalPort,
+                                            const QString &finalPrivateKeyPath,
+                                            const QString &finalPassword);
+  Q_INVOKABLE void stopSshTunnel();
+  Q_INVOKABLE bool sshTunnelActive() const;
 
   CommandResult runCommand(const QStringList &arguments,
                            const QString &password = QString(),
@@ -51,4 +75,7 @@ private:
 
   QString status_;
   QString sessionsPath_;
+  QProcess *sshTunnelProcess_ = nullptr;
+  QString sshAskPassPath_;
+  QString sshConfigPath_;
 };

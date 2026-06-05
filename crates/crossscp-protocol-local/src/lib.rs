@@ -401,11 +401,27 @@ impl RemoteFileSystem for LocalFileSystem {
 
     fn capabilities(&self) -> ProtocolCapabilities {
         ProtocolCapabilities {
-            can_resume: true,
+            can_list: true,
+            can_upload: true,
+            can_download: true,
+            can_delete: true,
+            can_mkdir: true,
+            can_rename: true,
+            can_recursive_transfer: true,
+            can_resume_upload: true,
+            can_resume_download: true,
             can_preserve_timestamps: true,
+            can_preserve_permissions: cfg!(unix),
             can_chmod: cfg!(unix),
             can_symlink: true,
             can_hash: false,
+            can_server_side_copy: true,
+            supports_random_access: true,
+            uses_real_directories: true,
+            uses_object_prefixes: false,
+            requires_bucket: false,
+            supports_tls_policy: false,
+            supports_http_version_policy: false,
         }
     }
 }

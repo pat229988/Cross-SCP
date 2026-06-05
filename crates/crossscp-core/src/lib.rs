@@ -17,7 +17,9 @@ pub use prompts::{
     PromptRequest, PromptResponse,
 };
 pub use protocol::{
-    CreateDirectoryOptions, Protocol, ProtocolCapabilities, RemoteFile, RemoteFileSystem,
-    RemoveOptions, RenameOptions,
+    CancellationToken, CreateDirectoryOptions, Protocol, ProtocolCapabilities, RemoteDeleteRequest,
+    RemoteErrorKind, RemoteFile, RemoteFileSystem, RemoteListRequest, RemoteMkdirRequest,
+    RemoteOperation, RemoteOperationResult, RemoteProgressEvent, RemoteRenameRequest,
+    RemoteTransferRequest, RemoveOptions, RenameOptions,
 };
-pub use session::{SessionProfile, SessionProtocol};
+pub use session::{ParseSessionProtocolError, SessionProfile, SessionProtocol};

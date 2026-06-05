@@ -12,6 +12,20 @@ CrossSCP is a cross-platform file transfer client built with Rust and Qt. It pro
 - Session-only transfer queue and activity logs
 - macOS `.app`/`.dmg`, Windows installer/portable ZIP, and Linux DEB/RPM/Flatpak packaging
 
+## Protocol support status
+
+| Protocol / feature | Status | Notes |
+| --- | --- | --- |
+| SFTP | Supported | Live GUI and CLI support with password or SSH private-key auth. |
+| Local filesystem | Supported | Local browsing and local copy operations are implemented. |
+| SCP | Supported | Transfer-only upload/download support over SSH; remote browsing/mkdir/delete are intentionally unsupported. Protocol broundry. |
+| FTP | Supported | Live CLI/GUI support for listing, upload, download, mkdir, delete, and recursive transfer. |
+| FTPS | Supported | Explicit FTPS over TLS is live with certificate verification through platform TLS defaults; implicit FTPS remains deferred. |
+| WebDAV | Planned | No live adapter yet. |
+| S3 | Planned | No live adapter yet. |
+| HTTP/3 / QUIC | Planned | Not wired into the HTTP-backed protocol stack yet. |
+| TLS 1.3 policy | Planned | App-level policy is not yet available. |
+
 ## Creator
 
 Created by **Pratik Patel**.
@@ -34,6 +48,9 @@ curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/ins
 See [`docs/INSTALLATION.md`](docs/INSTALLATION.md) for macOS Gatekeeper details,
 Windows SmartScreen notes, Linux install/uninstall cleanup, and release trust
 expectations.
+
+For restricted networks, custom ports, SSH jump hosts, local tunnels, VPNs, and
+proxy workarounds, see [`docs/CONNECTION_SCENARIOS.md`](docs/CONNECTION_SCENARIOS.md).
 
 ## Licensing and Qt runtime
 

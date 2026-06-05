@@ -46,6 +46,20 @@ public:
                                        const QString &privateKeyPassphrase,
                                        const QString &source,
                                        const QString &destination);
+  Q_INVOKABLE bool enqueueRemoteUpload(const QString &protocol, const QString &host,
+                                       int port, const QString &username,
+                                       const QString &password,
+                                       const QString &privateKeyPath,
+                                       const QString &privateKeyPassphrase,
+                                       const QString &source,
+                                       const QString &destination);
+  Q_INVOKABLE bool enqueueRemoteDownload(const QString &protocol, const QString &host,
+                                         int port, const QString &username,
+                                         const QString &password,
+                                         const QString &privateKeyPath,
+                                         const QString &privateKeyPassphrase,
+                                         const QString &source,
+                                         const QString &destination);
   Q_INVOKABLE void clearFinished();
   Q_INVOKABLE void clearAll();
 
@@ -68,6 +82,7 @@ private:
     qint64 startedAtMs = 0;
     QString error;
     QStringList arguments;
+    QString protocol;
     QString password;
     QString privateKeyPath;
     QString privateKeyPassphrase;
@@ -78,6 +93,12 @@ private:
                            const QString &privateKeyPath,
                            const QString &privateKeyPassphrase,
                            const QString &source, const QString &destination);
+  bool enqueueRemoteTransfer(const QString &direction, const QString &protocol,
+                             const QString &host, int port,
+                             const QString &username, const QString &password,
+                             const QString &privateKeyPath,
+                             const QString &privateKeyPassphrase,
+                             const QString &source, const QString &destination);
   void startNextQueuedTransfer();
   void startCurrentProcess();
   void consumeProgressOutput();

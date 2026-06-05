@@ -54,14 +54,26 @@ bool RemoteFileModel::connected() const { return connected_; }
 
 void RemoteFileModel::setBackend(AppBackend *backend) { backend_ = backend; }
 
-bool RemoteFileModel::connectPassword(const QString &host, int port, const QString &username,
-                                      const QString &password, const QString &remotePath) {
+bool RemoteFileModel::connectPassword(const QString &protocol, const QString &host, int port,
+                                      const QString &username, const QString &password,
+                                      const QString &remotePath) {
+  protocol_ = protocol.trimmed().toLower();
+  if (protocol_.isEmpty()) {
+    protocol_ = QStringLiteral("sftp");
+  }
   host_ = host.trimmed();
   port_ = port;
   username_ = username.trimmed();
   password_ = password;
   privateKeyPath_.clear();
   privateKeyPassphrase_.clear();
+  if (protocol_ != QStringLiteral("sftp") && protocol_ != QStringLiteral("ftp") &&
+      protocol_ != QStringLiteral("ftps")) {
+    setError(QStringLiteral("Selected protocol is not implemented yet"));
+    connected_ = false;
+    emit connectedChanged();
+    return false;
+  }
   if (password_.isEmpty()) {
     setError(QStringLiteral("Password is required for password authentication"));
     connected_ = false;
@@ -71,20 +83,37 @@ bool RemoteFileModel::connectPassword(const QString &host, int port, const QStri
   setPath(remotePath.trimmed().isEmpty() ? QStringLiteral("/") : remotePath.trimmed());
   connected_ = true;
   emit connectedChanged();
+  if (protocol_ == QStringLiteral("scp")) {
+    beginResetModel();
+    entries_.clear();
+    endResetModel();
+    setError(QStringLiteral("SCP connected in transfer-only mode; remote browsing is not supported"));
+    return true;
+  }
   refresh();
   return error_.isEmpty();
 }
 
-bool RemoteFileModel::connectKey(const QString &host, int port, const QString &username,
-                                 const QString &privateKeyPath,
+bool RemoteFileModel::connectKey(const QString &protocol, const QString &host, int port,
+                                 const QString &username, const QString &privateKeyPath,
                                  const QString &privateKeyPassphrase,
                                  const QString &remotePath) {
+  protocol_ = protocol.trimmed().toLower();
+  if (protocol_.isEmpty()) {
+    protocol_ = QStringLiteral("sftp");
+  }
   host_ = host.trimmed();
   port_ = port;
   username_ = username.trimmed();
   password_.clear();
   privateKeyPath_ = privateKeyPath.trimmed();
   privateKeyPassphrase_ = privateKeyPassphrase;
+  if (protocol_ != QStringLiteral("sftp") && protocol_ != QStringLiteral("scp")) {
+    setError(QStringLiteral("Private-key authentication is supported for SFTP and SCP only"));
+    connected_ = false;
+    emit connectedChanged();
+    return false;
+  }
   if (privateKeyPath_.isEmpty()) {
     setError(QStringLiteral("Private key path is required for key authentication"));
     connected_ = false;
@@ -94,18 +123,34 @@ bool RemoteFileModel::connectKey(const QString &host, int port, const QString &u
   setPath(remotePath.trimmed().isEmpty() ? QStringLiteral("/") : remotePath.trimmed());
   connected_ = true;
   emit connectedChanged();
+  if (protocol_ == QStringLiteral("scp")) {
+    beginResetModel();
+    entries_.clear();
+    endResetModel();
+    setError(QStringLiteral("SCP connected in transfer-only mode; remote browsing is not supported"));
+    return true;
+  }
   refresh();
   return error_.isEmpty();
 }
 
 void RemoteFileModel::refresh() {
+  if (protocol_ == QStringLiteral("scp")) {
+    beginResetModel();
+    entries_.clear();
+    endResetModel();
+    setError(QStringLiteral("SCP is transfer-only; remote browsing is not supported"));
+    return;
+  }
   if (backend_ == nullptr || host_.isEmpty() || username_.isEmpty()) {
     setError(QStringLiteral("Remote connection details are required"));
     return;
   }
   const CommandResult result = backend_->runCommand(
-      {QStringLiteral("sftp-list"), host_, QString::number(port_), username_, path_}, password_,
-      privateKeyPath_, privateKeyPassphrase_);
+      {QStringLiteral("remote-list"), QStringLiteral("--protocol"), protocol_,
+       QStringLiteral("--host"), host_, QStringLiteral("--port"), QString::number(port_),
+       QStringLiteral("--username"), username_, QStringLiteral("--path"), path_},
+      password_, privateKeyPath_, privateKeyPassphrase_);
   if (result.exitCode != 0) {
     beginResetModel();
     entries_.clear();
@@ -158,6 +203,7 @@ void RemoteFileModel::disconnect() {
   entries_.clear();
   endResetModel();
   host_.clear();
+  protocol_ = QStringLiteral("sftp");
   username_.clear();
   password_.clear();
   privateKeyPath_.clear();
@@ -184,8 +230,10 @@ bool RemoteFileModel::uploadFile(const QString &localPath, const QString &remote
     return false;
   }
   const CommandResult result = backend_->runCommand(
-      {QStringLiteral("sftp-upload"), host_, QString::number(port_), username_, localPath.trimmed(),
-       remotePath.trimmed()},
+      {QStringLiteral("remote-upload"), QStringLiteral("--protocol"), protocol_,
+       QStringLiteral("--host"), host_, QStringLiteral("--port"), QString::number(port_),
+       QStringLiteral("--username"), username_, QStringLiteral("--local"), localPath.trimmed(),
+       QStringLiteral("--remote"), remotePath.trimmed()},
       password_, privateKeyPath_, privateKeyPassphrase_);
   if (result.exitCode != 0) {
     setError(result.standardError.trimmed());
@@ -201,8 +249,10 @@ bool RemoteFileModel::downloadFile(const QString &remotePath, const QString &loc
     return false;
   }
   const CommandResult result = backend_->runCommand(
-      {QStringLiteral("sftp-download"), host_, QString::number(port_), username_, remotePath,
-       localPath},
+      {QStringLiteral("remote-download"), QStringLiteral("--protocol"), protocol_,
+       QStringLiteral("--host"), host_, QStringLiteral("--port"), QString::number(port_),
+       QStringLiteral("--username"), username_, QStringLiteral("--remote"), remotePath,
+       QStringLiteral("--local"), localPath},
       password_, privateKeyPath_, privateKeyPassphrase_);
   if (result.exitCode != 0) {
     setError(result.standardError.trimmed());
@@ -217,7 +267,11 @@ bool RemoteFileModel::createDirectory(const QString &name) {
     return false;
   }
   if (!connected_) {
-    setError(QStringLiteral("Connect to SFTP before creating remote folders"));
+    setError(QStringLiteral("Connect before creating remote folders"));
+    return false;
+  }
+  if (protocol_ == QStringLiteral("scp")) {
+    setError(QStringLiteral("SCP does not support remote mkdir in this release"));
     return false;
   }
   const QString trimmedName = name.trimmed();
@@ -232,7 +286,9 @@ bool RemoteFileModel::createDirectory(const QString &name) {
 
   const QString remotePath = joinRemotePath(path_, trimmedName);
   const CommandResult result = backend_->runCommand(
-      {QStringLiteral("sftp-mkdir"), host_, QString::number(port_), username_, remotePath},
+      {QStringLiteral("remote-mkdir"), QStringLiteral("--protocol"), protocol_,
+       QStringLiteral("--host"), host_, QStringLiteral("--port"), QString::number(port_),
+       QStringLiteral("--username"), username_, QStringLiteral("--path"), remotePath},
       password_, privateKeyPath_, privateKeyPassphrase_);
   if (result.exitCode != 0) {
     setError(result.standardError.trimmed());
@@ -248,7 +304,11 @@ bool RemoteFileModel::deletePath(const QString &remotePath) {
     return false;
   }
   if (!connected_) {
-    setError(QStringLiteral("Connect to SFTP before deleting remote files"));
+    setError(QStringLiteral("Connect before deleting remote files"));
+    return false;
+  }
+  if (protocol_ == QStringLiteral("scp")) {
+    setError(QStringLiteral("SCP does not support remote delete in this release"));
     return false;
   }
   const QString trimmedPath = remotePath.trimmed();
@@ -262,7 +322,9 @@ bool RemoteFileModel::deletePath(const QString &remotePath) {
   }
 
   const CommandResult result = backend_->runCommand(
-      {QStringLiteral("sftp-delete"), host_, QString::number(port_), username_, trimmedPath},
+      {QStringLiteral("remote-delete"), QStringLiteral("--protocol"), protocol_,
+       QStringLiteral("--host"), host_, QStringLiteral("--port"), QString::number(port_),
+       QStringLiteral("--username"), username_, QStringLiteral("--path"), trimmedPath},
       password_, privateKeyPath_, privateKeyPassphrase_);
   if (result.exitCode != 0) {
     setError(result.standardError.trimmed());
