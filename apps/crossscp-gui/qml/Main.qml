@@ -416,8 +416,8 @@ ApplicationWindow {
             var hop = nestedHopModel.get(i)
             names.push((hop.user && hop.user.length > 0 ? hop.user + "@" : "") + hop.host + (hop.port !== 22 ? ":" + hop.port : ""))
         }
-        var final = finalSshHostField.text.trim().length > 0 ? finalSshHostField.text.trim() : qsTr("final host not set")
-        return names.length > 0 ? names.join(" → ") + " → " + final : qsTr("No hops added")
+        var finalHostLabel = finalSshHostField.text.trim().length > 0 ? finalSshHostField.text.trim() : qsTr("final host not set")
+        return names.length > 0 ? names.join(" → ") + " → " + finalHostLabel : qsTr("No hops added")
     }
 
     Dialog {

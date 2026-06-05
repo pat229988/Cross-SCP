@@ -791,9 +791,9 @@ dependencies = [
 
 [[package]]
 name = "suppaftp"
-version = "8.0.3"
+version = "7.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4275c142b5be3af2eeadd70dd368caf3b65546c8af1035839372dd7a1436127d"
+checksum = "69a15b325bbe0a1f85de3dbf988a3a14e9cd321537dffcbf6641381dd6d7586f"
 dependencies = [
  "chrono",
  "futures-lite",
