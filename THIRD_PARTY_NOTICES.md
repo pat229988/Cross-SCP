@@ -54,6 +54,8 @@ See `LICENSES/QT-LGPL-COMPLIANCE.md` for the release checklist.
 ## Rust crates and native libraries
 
 Rust crate license details are tracked in `LICENSES/THIRD_PARTY_LICENSES.md`.
-The optional SFTP backend uses the Rust `ssh2` crate over libssh2 and native
-OpenSSL/zlib dependencies. Release notes should record exact native library
-versions when those libraries are bundled.
+SCP support and the optional SFTP backend use the Rust `ssh2` crate over
+libssh2 and native OpenSSL/zlib dependencies. FTP/explicit FTPS support uses `suppaftp` with the
+`native-tls` backend, which may use platform TLS libraries and OpenSSL depending
+on target platform. Release notes should record exact native library versions
+when those libraries are bundled.

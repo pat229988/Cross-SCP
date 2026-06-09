@@ -8,7 +8,12 @@ members = [
     "crates/crossscp-platform-macos",
     "crates/crossscp-platform-windows",
     "crates/crossscp-protocol-local",
+    "crates/crossscp-protocol-scp",
     "crates/crossscp-protocol-sftp",
+    "crates/crossscp-protocol-ftp",
+    "crates/crossscp-protocol-http",
+    "crates/crossscp-protocol-webdav",
+    "crates/crossscp-protocol-s3",
     "crates/crossscp-security",
     "crates/crossscp-transfer",
 ]

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-//! Protocol-neutral traits and remote file metadata.
+//! Protocol-neutral traits, operation models, and remote file metadata.
+
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use crate::session::SessionProfile;
 
@@ -19,11 +22,257 @@ pub enum Protocol {
 /// Capabilities advertised by a protocol adapter.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct ProtocolCapabilities {
-    pub can_resume: bool,
+    pub can_list: bool,
+    pub can_upload: bool,
+    pub can_download: bool,
+    pub can_delete: bool,
+    pub can_mkdir: bool,
+    pub can_rename: bool,
+    pub can_recursive_transfer: bool,
+    pub can_resume_upload: bool,
+    pub can_resume_download: bool,
     pub can_preserve_timestamps: bool,
+    pub can_preserve_permissions: bool,
     pub can_chmod: bool,
     pub can_symlink: bool,
     pub can_hash: bool,
+    pub can_server_side_copy: bool,
+    pub supports_random_access: bool,
+    pub uses_real_directories: bool,
+    pub uses_object_prefixes: bool,
+    pub requires_bucket: bool,
+    pub supports_tls_policy: bool,
+    pub supports_http_version_policy: bool,
+}
+
+impl ProtocolCapabilities {
+    #[must_use]
+    pub const fn sftp() -> Self {
+        Self {
+            can_list: true,
+            can_upload: true,
+            can_download: true,
+            can_delete: true,
+            can_mkdir: true,
+            can_rename: false,
+            can_recursive_transfer: true,
+            can_resume_upload: false,
+            can_resume_download: false,
+            can_preserve_timestamps: false,
+            can_preserve_permissions: false,
+            can_chmod: false,
+            can_symlink: false,
+            can_hash: false,
+            can_server_side_copy: false,
+            supports_random_access: false,
+            uses_real_directories: true,
+            uses_object_prefixes: false,
+            requires_bucket: false,
+            supports_tls_policy: false,
+            supports_http_version_policy: false,
+        }
+    }
+
+    #[must_use]
+    pub const fn scp_transfer_only() -> Self {
+        Self {
+            can_upload: true,
+            can_download: true,
+            can_recursive_transfer: false,
+            uses_real_directories: true,
+            ..Self::empty()
+        }
+    }
+
+    #[must_use]
+    pub const fn ftp_like(supports_tls_policy: bool) -> Self {
+        Self {
+            can_list: true,
+            can_upload: true,
+            can_download: true,
+            can_delete: true,
+            can_mkdir: true,
+            can_rename: true,
+            can_recursive_transfer: true,
+            uses_real_directories: true,
+            supports_tls_policy,
+            ..Self::empty()
+        }
+    }
+
+    #[must_use]
+    pub const fn webdav() -> Self {
+        Self {
+            can_list: true,
+            can_upload: true,
+            can_download: true,
+            can_delete: true,
+            can_mkdir: true,
+            can_rename: true,
+            can_recursive_transfer: true,
+            uses_real_directories: true,
+            supports_tls_policy: true,
+            supports_http_version_policy: true,
+            ..Self::empty()
+        }
+    }
+
+    #[must_use]
+    pub const fn s3() -> Self {
+        Self {
+            can_list: true,
+            can_upload: true,
+            can_download: true,
+            can_delete: true,
+            can_mkdir: true,
+            can_rename: true,
+            can_recursive_transfer: true,
+            can_server_side_copy: true,
+            uses_object_prefixes: true,
+            requires_bucket: true,
+            supports_tls_policy: true,
+            supports_http_version_policy: true,
+            ..Self::empty()
+        }
+    }
+
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            can_list: false,
+            can_upload: false,
+            can_download: false,
+            can_delete: false,
+            can_mkdir: false,
+            can_rename: false,
+            can_recursive_transfer: false,
+            can_resume_upload: false,
+            can_resume_download: false,
+            can_preserve_timestamps: false,
+            can_preserve_permissions: false,
+            can_chmod: false,
+            can_symlink: false,
+            can_hash: false,
+            can_server_side_copy: false,
+            supports_random_access: false,
+            uses_real_directories: false,
+            uses_object_prefixes: false,
+            requires_bucket: false,
+            supports_tls_policy: false,
+            supports_http_version_policy: false,
+        }
+    }
+}
+
+/// Protocol-neutral error categories suitable for CLI/GUI routing.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RemoteErrorKind {
+    AuthFailed,
+    NetworkUnreachable,
+    Timeout,
+    TlsCertificate,
+    HostKeyTrust,
+    PermissionDenied,
+    NotFound,
+    ConflictAlreadyExists,
+    UnsupportedOperation,
+    RateLimited,
+    ServiceUnavailable,
+    UnknownBackend,
+}
+
+/// Supported high-level remote operation kinds.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RemoteOperation {
+    List,
+    Upload,
+    Download,
+    Mkdir,
+    Delete,
+    Rename,
+    Capabilities,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemoteListRequest {
+    pub path: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemoteTransferRequest {
+    pub local_path: String,
+    pub remote_path: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemoteMkdirRequest {
+    pub remote_path: String,
+    pub create_parents: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemoteDeleteRequest {
+    pub remote_path: String,
+    pub recursive: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RemoteRenameRequest {
+    pub from: String,
+    pub to: String,
+    pub overwrite: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RemoteOperationResult {
+    Entries(Vec<RemoteFile>),
+    Transferred {
+        bytes_done: u64,
+        bytes_total: Option<u64>,
+    },
+    Completed,
+    Capabilities(ProtocolCapabilities),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RemoteProgressEvent {
+    Started {
+        operation: RemoteOperation,
+    },
+    Bytes {
+        done: u64,
+        total: Option<u64>,
+    },
+    CurrentFile {
+        path: String,
+    },
+    Completed,
+    Failed {
+        kind: RemoteErrorKind,
+        message: String,
+    },
+    Cancelled,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct CancellationToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl CancellationToken {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+    }
+
+    #[must_use]
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
 }
 
 /// Minimal protocol-neutral remote file model.

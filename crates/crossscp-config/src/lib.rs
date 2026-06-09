@@ -26,6 +26,10 @@ pub trait SessionStore {
 #[derive(Debug)]
 pub enum ConfigError {
     EmptyProfileName,
+    MissingRequiredField {
+        protocol: String,
+        field: &'static str,
+    },
     InvalidRecord(String),
     InvalidProtocol(String),
     Io(std::io::Error),
@@ -35,6 +39,9 @@ impl fmt::Display for ConfigError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::EmptyProfileName => write!(formatter, "session profile name cannot be empty"),
+            Self::MissingRequiredField { protocol, field } => {
+                write!(formatter, "{protocol} profile requires {field}")
+            }
             Self::InvalidRecord(record) => write!(formatter, "invalid session record: {record}"),
             Self::InvalidProtocol(protocol) => {
                 write!(formatter, "invalid session protocol: {protocol}")
@@ -48,7 +55,10 @@ impl std::error::Error for ConfigError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Io(error) => Some(error),
-            Self::EmptyProfileName | Self::InvalidRecord(_) | Self::InvalidProtocol(_) => None,
+            Self::EmptyProfileName
+            | Self::MissingRequiredField { .. }
+            | Self::InvalidRecord(_)
+            | Self::InvalidProtocol(_) => None,
         }
     }
 }
@@ -147,6 +157,46 @@ fn validate_profile(profile: &SessionProfile) -> Result<(), ConfigError> {
     if profile.name.trim().is_empty() {
         return Err(ConfigError::EmptyProfileName);
     }
+    match profile.protocol {
+        SessionProtocol::Sftp
+        | SessionProtocol::Scp
+        | SessionProtocol::Ftp
+        | SessionProtocol::Ftps => {
+            require_non_empty(&profile.host, &profile.protocol, "host")?;
+            require_port(profile.port, &profile.protocol)?;
+        }
+        SessionProtocol::WebDav => {
+            require_non_empty(&profile.host, &profile.protocol, "base URL/host")?;
+        }
+        SessionProtocol::S3 => {
+            require_non_empty(&profile.host, &profile.protocol, "endpoint or bucket")?;
+        }
+        SessionProtocol::Local => {}
+    }
+    Ok(())
+}
+
+fn require_non_empty(
+    value: &str,
+    protocol: &SessionProtocol,
+    field: &'static str,
+) -> Result<(), ConfigError> {
+    if value.trim().is_empty() {
+        return Err(ConfigError::MissingRequiredField {
+            protocol: protocol.as_str().to_string(),
+            field,
+        });
+    }
+    Ok(())
+}
+
+fn require_port(port: Option<u16>, protocol: &SessionProtocol) -> Result<(), ConfigError> {
+    if port.is_none() {
+        return Err(ConfigError::MissingRequiredField {
+            protocol: protocol.as_str().to_string(),
+            field: "port",
+        });
+    }
     Ok(())
 }
 
@@ -156,7 +206,7 @@ fn render_profiles(profiles: &[SessionProfile]) -> String {
         output.push_str(
             &[
                 escape(&profile.name),
-                protocol_to_str(&profile.protocol).to_string(),
+                profile.protocol.as_str().to_string(),
                 escape(&profile.host),
                 profile
                     .port
@@ -252,29 +302,10 @@ fn unescape(value: &str) -> Result<String, ConfigError> {
     Ok(output)
 }
 
-fn protocol_to_str(protocol: &SessionProtocol) -> &'static str {
-    match protocol {
-        SessionProtocol::Sftp => "sftp",
-        SessionProtocol::Scp => "scp",
-        SessionProtocol::Ftp => "ftp",
-        SessionProtocol::Ftps => "ftps",
-        SessionProtocol::WebDav => "webdav",
-        SessionProtocol::S3 => "s3",
-        SessionProtocol::Local => "local",
-    }
-}
-
 fn str_to_protocol(protocol: &str) -> Result<SessionProtocol, ConfigError> {
-    match protocol {
-        "sftp" => Ok(SessionProtocol::Sftp),
-        "scp" => Ok(SessionProtocol::Scp),
-        "ftp" => Ok(SessionProtocol::Ftp),
-        "ftps" => Ok(SessionProtocol::Ftps),
-        "webdav" => Ok(SessionProtocol::WebDav),
-        "s3" => Ok(SessionProtocol::S3),
-        "local" => Ok(SessionProtocol::Local),
-        _ => Err(ConfigError::InvalidProtocol(protocol.to_string())),
-    }
+    protocol
+        .parse()
+        .map_err(|_| ConfigError::InvalidProtocol(protocol.to_string()))
 }
 
 #[allow(dead_code)]
@@ -350,6 +381,37 @@ mod tests {
         assert!(reopened.get("to-remove").expect("get removed").is_none());
 
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn store_round_trips_all_modeled_protocols() {
+        let mut store = InMemorySessionStore::new();
+        for protocol in SessionProtocol::all() {
+            let mut profile = sample_profile(protocol.as_str());
+            profile.protocol = protocol.clone();
+            profile.host = match protocol {
+                SessionProtocol::Local => String::new(),
+                SessionProtocol::WebDav => "https://example.com/dav".to_string(),
+                SessionProtocol::S3 => "s3.example.com/my-bucket".to_string(),
+                _ => "example.com".to_string(),
+            };
+            profile.port = protocol.default_port();
+            store.save(profile.clone()).expect("save modeled protocol");
+            assert_eq!(
+                store.get(&profile.name).expect("get profile"),
+                Some(profile)
+            );
+        }
+    }
+
+    #[test]
+    fn validation_rejects_missing_required_protocol_fields() {
+        let mut store = InMemorySessionStore::new();
+        let mut profile = sample_profile("ftp-missing-host");
+        profile.protocol = SessionProtocol::Ftp;
+        profile.host.clear();
+
+        assert!(store.save(profile).is_err());
     }
 
     fn sample_profile(name: &str) -> SessionProfile {

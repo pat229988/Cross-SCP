@@ -27,10 +27,11 @@ public:
   bool connected() const;
 
   Q_INVOKABLE void setBackend(AppBackend *backend);
-  Q_INVOKABLE bool connectPassword(const QString &host, int port, const QString &username,
-                                   const QString &password, const QString &remotePath);
-  Q_INVOKABLE bool connectKey(const QString &host, int port, const QString &username,
-                              const QString &privateKeyPath,
+  Q_INVOKABLE bool connectPassword(const QString &protocol, const QString &host, int port,
+                                   const QString &username, const QString &password,
+                                   const QString &remotePath);
+  Q_INVOKABLE bool connectKey(const QString &protocol, const QString &host, int port,
+                              const QString &username, const QString &privateKeyPath,
                               const QString &privateKeyPassphrase,
                               const QString &remotePath);
   Q_INVOKABLE void refresh();
@@ -61,6 +62,7 @@ private:
   QList<Entry> entries_;
   AppBackend *backend_ = nullptr;
   QString host_;
+  QString protocol_ = QStringLiteral("sftp");
   int port_ = 22;
   QString username_;
   QString password_;

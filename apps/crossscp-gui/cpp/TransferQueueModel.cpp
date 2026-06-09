@@ -82,18 +82,38 @@ bool TransferQueueModel::enqueueSftpUpload(
     const QString &host, int port, const QString &username, const QString &password,
     const QString &privateKeyPath, const QString &privateKeyPassphrase,
     const QString &source, const QString &destination) {
-  return enqueueSftpTransfer(QStringLiteral("Upload"), host, port, username, password,
-                             privateKeyPath, privateKeyPassphrase, source,
-                             destination);
+  return enqueueRemoteTransfer(QStringLiteral("Upload"), QStringLiteral("sftp"), host,
+                               port, username, password, privateKeyPath,
+                               privateKeyPassphrase, source, destination);
 }
 
 bool TransferQueueModel::enqueueSftpDownload(
     const QString &host, int port, const QString &username, const QString &password,
     const QString &privateKeyPath, const QString &privateKeyPassphrase,
     const QString &source, const QString &destination) {
-  return enqueueSftpTransfer(QStringLiteral("Download"), host, port, username, password,
-                             privateKeyPath, privateKeyPassphrase, source,
-                             destination);
+  return enqueueRemoteTransfer(QStringLiteral("Download"), QStringLiteral("sftp"), host,
+                               port, username, password, privateKeyPath,
+                               privateKeyPassphrase, source, destination);
+}
+
+bool TransferQueueModel::enqueueRemoteUpload(
+    const QString &protocol, const QString &host, int port, const QString &username,
+    const QString &password, const QString &privateKeyPath,
+    const QString &privateKeyPassphrase, const QString &source,
+    const QString &destination) {
+  return enqueueRemoteTransfer(QStringLiteral("Upload"), protocol, host, port, username,
+                               password, privateKeyPath, privateKeyPassphrase, source,
+                               destination);
+}
+
+bool TransferQueueModel::enqueueRemoteDownload(
+    const QString &protocol, const QString &host, int port, const QString &username,
+    const QString &password, const QString &privateKeyPath,
+    const QString &privateKeyPassphrase, const QString &source,
+    const QString &destination) {
+  return enqueueRemoteTransfer(QStringLiteral("Download"), protocol, host, port,
+                               username, password, privateKeyPath,
+                               privateKeyPassphrase, source, destination);
 }
 
 bool TransferQueueModel::enqueueSftpTransfer(
@@ -101,27 +121,47 @@ bool TransferQueueModel::enqueueSftpTransfer(
     const QString &password, const QString &privateKeyPath,
     const QString &privateKeyPassphrase, const QString &source,
     const QString &destination) {
+  return enqueueRemoteTransfer(direction, QStringLiteral("sftp"), host, port, username,
+                               password, privateKeyPath, privateKeyPassphrase, source,
+                               destination);
+}
+
+bool TransferQueueModel::enqueueRemoteTransfer(
+    const QString &direction, const QString &protocol, const QString &host, int port,
+    const QString &username, const QString &password, const QString &privateKeyPath,
+    const QString &privateKeyPassphrase, const QString &source,
+    const QString &destination) {
   if (backend_ == nullptr) {
     return false;
   }
+  const QString normalizedProtocol = protocol.trimmed().toLower();
   if (host.trimmed().isEmpty() || username.trimmed().isEmpty() ||
-      source.trimmed().isEmpty() || destination.trimmed().isEmpty()) {
+      source.trimmed().isEmpty() || destination.trimmed().isEmpty() ||
+      normalizedProtocol.isEmpty()) {
     return false;
   }
 
   const bool upload = direction == QStringLiteral("Upload");
-  QStringList arguments = {upload ? QStringLiteral("sftp-upload")
-                                  : QStringLiteral("sftp-download"),
+  QStringList arguments = {upload ? QStringLiteral("remote-upload")
+                                  : QStringLiteral("remote-download"),
+                           QStringLiteral("--protocol"),
+                           normalizedProtocol,
+                           QStringLiteral("--host"),
                            host.trimmed(),
+                           QStringLiteral("--port"),
                            QString::number(port),
+                           QStringLiteral("--username"),
                            username.trimmed(),
+                           upload ? QStringLiteral("--local") : QStringLiteral("--remote"),
                            source.trimmed(),
+                           upload ? QStringLiteral("--remote") : QStringLiteral("--local"),
                            destination.trimmed()};
 
   const int row = jobs_.size();
   beginInsertRows(QModelIndex(), row, row);
   Job job;
   job.direction = direction;
+  job.protocol = normalizedProtocol;
   job.source = source.trimmed();
   job.destination = destination.trimmed();
   job.state = QStringLiteral("Queued");
@@ -210,12 +250,15 @@ void TransferQueueModel::startCurrentProcess() {
   currentProcess_ = new QProcess(this);
   QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
   if (!job.password.isEmpty()) {
+    environment.insert(QStringLiteral("CROSSSCP_REMOTE_PASSWORD"), job.password);
     environment.insert(QStringLiteral("CROSSSCP_SFTP_PASSWORD"), job.password);
   }
   if (!job.privateKeyPath.isEmpty()) {
+    environment.insert(QStringLiteral("CROSSSCP_REMOTE_PRIVATE_KEY_PATH"), job.privateKeyPath);
     environment.insert(QStringLiteral("CROSSSCP_SFTP_KEY_PATH"), job.privateKeyPath);
   }
   if (!job.privateKeyPassphrase.isEmpty()) {
+    environment.insert(QStringLiteral("CROSSSCP_REMOTE_PRIVATE_KEY_PASSPHRASE"), job.privateKeyPassphrase);
     environment.insert(QStringLiteral("CROSSSCP_SFTP_KEY_PASSPHRASE"), job.privateKeyPassphrase);
   }
   currentProcess_->setProcessEnvironment(environment);

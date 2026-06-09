@@ -32,6 +32,7 @@ ApplicationWindow {
     property var selectedRemoteItems: []
     property bool logsNeedHorizontalScroll: false
     property string activeHost: ""
+    property string activeProtocol: "sftp"
     property int activePort: 22
     property string activeUsername: ""
     property string activePassword: ""
@@ -192,9 +193,60 @@ ApplicationWindow {
         return root.joinRemotePath(remoteModel.path, localName)
     }
 
+    function defaultPortForProtocol(protocol) {
+        if (protocol === "SFTP" || protocol === "SCP") return 22
+        if (protocol === "FTP" || protocol === "FTPS") return 21
+        if (protocol === "WebDAV" || protocol === "S3") return 443
+        return 22
+    }
+
+    function protocolIsLive(protocol) {
+        return protocol === "SFTP" || protocol === "SCP" || protocol === "FTP" || protocol === "FTPS"
+    }
+
+    function advancedConnectionUsesLocalTunnel() {
+        return connectionModeCombo.currentIndex === 1 || connectionModeCombo.currentIndex === 2 || connectionModeCombo.currentIndex === 3
+    }
+
+    function effectiveConnectionHost() {
+        if (!advancedConnectionUsesLocalTunnel()) return siteHostField.text.trim()
+        return tunnelLocalHostField.text.trim().length > 0 ? tunnelLocalHostField.text.trim() : "127.0.0.1"
+    }
+
+    function effectiveConnectionPort() {
+        return advancedConnectionUsesLocalTunnel() ? tunnelLocalPortField.value : sitePortField.value
+    }
+
+    function suggestedTunnelCommand() {
+        var jumpUser = jumpUsernameField.text.trim().length > 0 ? jumpUsernameField.text.trim() + "@" : ""
+        var jumpHost = jumpHostField.text.trim().length > 0 ? jumpHostField.text.trim() : "jump.example.com"
+        var jumpPort = jumpPortField.value > 0 ? " -p " + jumpPortField.value : ""
+        return "ssh -N -L " + tunnelLocalPortField.value + ":" + siteHostField.text.trim() + ":" + sitePortField.value + jumpPort + " " + jumpUser + jumpHost
+    }
+
+    function proxyJumpChain() {
+        var hops = []
+        for (var i = 0; i < nestedHopModel.count; i++) {
+            var hop = nestedHopModel.get(i)
+            var h = (hop.host || "").trim()
+            if (h.length === 0) continue
+            var u = (hop.user || "").trim()
+            var p = hop.port > 0 && hop.port !== 22 ? ":" + hop.port : ""
+            hops.push((u.length > 0 ? u + "@" : "") + h + p)
+        }
+        return hops.join(",")
+    }
+
+    function suggestedProxyJumpCommand() {
+        var local = tunnelLocalHostField.text.trim().length > 0 ? tunnelLocalHostField.text.trim() : "127.0.0.1"
+        var finalUser = finalSshUsernameField.text.trim().length > 0 ? finalSshUsernameField.text.trim() + "@" : ""
+        var finalHost = finalSshHostField.text.trim().length > 0 ? finalSshHostField.text.trim() : "final.internal"
+        return "ssh -N -L " + local + ":" + tunnelLocalPortField.value + ":" + siteHostField.text.trim() + ":" + sitePortField.value + " -J " + root.proxyJumpChain() + " -p " + finalSshPortField.value + " " + finalUser + finalHost
+    }
+
     function performUpload() {
         if (!remoteModel.connected) {
-            statusText = qsTr("Connect to SFTP before uploading")
+            statusText = qsTr("Connect to a remote session before uploading")
             return
         }
         if (selectedLocalItems.length > 0) {
@@ -203,7 +255,7 @@ ApplicationWindow {
             for (var i = 0; i < selectedLocalItems.length; i++) {
                 var item = selectedLocalItems[i]
                 var destination = joinRemotePath(baseRemotePath, item.name)
-                if (queueModel.enqueueSftpUpload(activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, item.path, destination)) {
+                if (queueModel.enqueueRemoteUpload(activeProtocol, activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, item.path, destination)) {
                     queuedUploads++
                     addLog(qsTr("Queued upload %1 → %2").arg(item.path).arg(destination))
                 } else {
@@ -219,7 +271,7 @@ ApplicationWindow {
             return
         }
         var remotePath = root.prepareUploadRemotePath(localPath)
-        if (queueModel.enqueueSftpUpload(activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, localPath, remotePath)) {
+        if (queueModel.enqueueRemoteUpload(activeProtocol, activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, localPath, remotePath)) {
             root.transferRemotePath = remotePath
             statusText = qsTr("Queued upload %1").arg(localPath)
             addLog(qsTr("Queued upload %1 → %2").arg(localPath).arg(remotePath))
@@ -228,7 +280,7 @@ ApplicationWindow {
 
     function performDownload() {
         if (!remoteModel.connected) {
-            statusText = qsTr("Connect to SFTP before downloading")
+            statusText = qsTr("Connect to a remote session before downloading")
             return
         }
         if (selectedRemoteItems.length > 0) {
@@ -236,7 +288,7 @@ ApplicationWindow {
             for (var i = 0; i < selectedRemoteItems.length; i++) {
                 var item = selectedRemoteItems[i]
                 var destination = joinLocalPath(leftModel.path, item.name)
-                if (queueModel.enqueueSftpDownload(activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, item.path, destination)) {
+                if (queueModel.enqueueRemoteDownload(activeProtocol, activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, item.path, destination)) {
                     queuedDownloads++
                     addLog(qsTr("Queued download %1 → %2").arg(item.path).arg(destination))
                 } else {
@@ -253,7 +305,7 @@ ApplicationWindow {
         }
         var localName = root.selectedRemoteName.length > 0 ? root.selectedRemoteName : root.fileNameFromPath(remotePath)
         var localPath = root.transferLocalPath.length > 0 ? root.transferLocalPath : root.joinLocalPath(leftModel.path, localName)
-        if (queueModel.enqueueSftpDownload(activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, remotePath, localPath)) {
+        if (queueModel.enqueueRemoteDownload(activeProtocol, activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, remotePath, localPath)) {
             root.transferLocalPath = localPath
             statusText = qsTr("Queued download %1").arg(remotePath)
             addLog(qsTr("Queued download %1 → %2").arg(remotePath).arg(localPath))
@@ -338,6 +390,187 @@ ApplicationWindow {
         id: privateKeyFileDialog
         title: qsTr("Select SSH private key")
         onAccepted: sitePrivateKeyField.text = backend.localPathFromUrl(String(selectedFile))
+    }
+
+    ListModel { id: nestedHopModel }
+
+    function serializeNestedHops() {
+        var lines = []
+        for (var i = 0; i < nestedHopModel.count; i++) {
+            var hop = nestedHopModel.get(i)
+            var mode = hop.authMode === undefined ? 0 : hop.authMode
+            var key = mode === 1 ? (hop.key || "") : ""
+            var password = mode === 2 ? (hop.password || "") : ""
+            lines.push([hop.user || "", hop.host || "", hop.port || 22, key, password].join("\t"))
+        }
+        return lines.join("\n")
+    }
+
+    function effectiveNestedHopSpecs() {
+        return root.serializeNestedHops()
+    }
+
+    function nestedHopChainLabel() {
+        var names = []
+        for (var i = 0; i < nestedHopModel.count; i++) {
+            var hop = nestedHopModel.get(i)
+            names.push((hop.user && hop.user.length > 0 ? hop.user + "@" : "") + hop.host + (hop.port !== 22 ? ":" + hop.port : ""))
+        }
+        var finalHostLabel = finalSshHostField.text.trim().length > 0 ? finalSshHostField.text.trim() : qsTr("final host not set")
+        return names.length > 0 ? names.join(" → ") + " → " + finalHostLabel : qsTr("No hops added")
+    }
+
+    Dialog {
+        id: nestedHopDialog
+        title: qsTr("Nested SSH Hop Builder")
+        modal: true
+        standardButtons: Dialog.Close
+        anchors.centerIn: parent
+        width: Math.min(root.width * 0.82, 860)
+        height: Math.min(root.height * 0.78, 620)
+
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 12
+            spacing: 10
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                text: qsTr("Add each SSH machine in the order you traverse it. Each hop can use agent/default auth, its own key, or its own password. Configure the final SSH host below.")
+            }
+
+            ListView {
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: nestedHopModel
+                delegate: Frame {
+                    width: ListView.view.width
+                    ColumnLayout {
+                        anchors.fill: parent
+                        spacing: 8
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Label { text: qsTr("🖥 %1.").arg(index + 1); Layout.preferredWidth: 44 }
+                            TextField { text: user; placeholderText: qsTr("user"); Layout.preferredWidth: 110; onEditingFinished: nestedHopModel.setProperty(index, "user", text) }
+                            TextField { text: host; placeholderText: qsTr("host/IP"); Layout.fillWidth: true; onEditingFinished: nestedHopModel.setProperty(index, "host", text) }
+                            SpinBox { value: port; from: 1; to: 65535; editable: true; Layout.preferredWidth: 105; onValueModified: nestedHopModel.setProperty(index, "port", value) }
+                            Button { text: qsTr("Remove"); onClicked: nestedHopModel.remove(index) }
+                        }
+                        GridLayout {
+                            Layout.fillWidth: true
+                            columns: 2
+                            Label { text: qsTr("Auth") }
+                            ComboBox {
+                                id: hopAuthCombo
+                                Layout.fillWidth: true
+                                model: [qsTr("Agent / none"), qsTr("SSH key"), qsTr("Password")]
+                                currentIndex: authMode === undefined ? 0 : authMode
+                                onActivated: nestedHopModel.setProperty(index, "authMode", currentIndex)
+                            }
+
+                            Label { text: qsTr("SSH Key"); visible: hopAuthCombo.currentIndex === 1 }
+                            ComboBox {
+                                Layout.fillWidth: true
+                                visible: hopAuthCombo.currentIndex === 1
+                                model: root.scannedSshKeys
+                                displayText: currentText.length > 0 ? root.fileNameFromPath(currentText) : qsTr("Scanned keys")
+                                onActivated: nestedHopModel.setProperty(index, "key", currentText)
+                            }
+
+                            Label { text: qsTr("Key Path"); visible: hopAuthCombo.currentIndex === 1 }
+                            TextField {
+                                text: key
+                                visible: hopAuthCombo.currentIndex === 1
+                                placeholderText: qsTr("paste full private-key path, e.g. ~/.ssh/id_ed25519")
+                                Layout.fillWidth: true
+                                onEditingFinished: nestedHopModel.setProperty(index, "key", text)
+                            }
+
+                            Label { text: qsTr("Password"); visible: hopAuthCombo.currentIndex === 2 }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                visible: hopAuthCombo.currentIndex === 2
+                                TextField {
+                                    id: hopPasswordField
+                                    text: password
+                                    echoMode: TextInput.Password
+                                    placeholderText: qsTr("password for this hop")
+                                    Layout.fillWidth: true
+                                    onEditingFinished: nestedHopModel.setProperty(index, "password", text)
+                                }
+                                ToolButton {
+                                    text: qsTr("👁")
+                                    ToolTip.visible: hovered
+                                    ToolTip.text: qsTr("Hold to reveal password")
+                                    onPressed: hopPasswordField.echoMode = TextInput.Normal
+                                    onReleased: hopPasswordField.echoMode = TextInput.Password
+                                    onCanceled: hopPasswordField.echoMode = TextInput.Password
+                                }
+                            }
+
+                            Label { text: ""; visible: hopAuthCombo.currentIndex === 0 }
+                            Label {
+                                Layout.fillWidth: true
+                                visible: hopAuthCombo.currentIndex === 0
+                                color: root.themeSubtle
+                                wrapMode: Text.WordWrap
+                                text: qsTr("Uses ssh-agent/default SSH config. No key path or password will be passed for this hop.")
+                            }
+                        }
+                    }
+                }
+            }
+
+            Frame {
+                Layout.fillWidth: true
+                ColumnLayout {
+                    anchors.fill: parent
+                    Label { text: qsTr("🎯 Final SSH Host"); font.bold: true }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        ThemedTextField { id: finalSshUsernameField; Layout.preferredWidth: 140; placeholderText: qsTr("final user") }
+                        ThemedTextField { id: finalSshHostField; Layout.fillWidth: true; placeholderText: qsTr("final.internal") }
+                        SpinBox { id: finalSshPortField; from: 1; to: 65535; value: 22; editable: true }
+                    }
+                    GridLayout {
+                        Layout.fillWidth: true
+                        columns: 2
+                        Label { text: qsTr("Auth") }
+                        ComboBox { id: finalSshAuthModeCombo; Layout.fillWidth: true; model: [qsTr("Agent / none"), qsTr("SSH key"), qsTr("Password")] }
+                        Label { text: qsTr("SSH Key"); visible: finalSshAuthModeCombo.currentIndex === 1 }
+                        ComboBox { Layout.fillWidth: true; visible: finalSshAuthModeCombo.currentIndex === 1; model: root.scannedSshKeys; displayText: currentText.length > 0 ? root.fileNameFromPath(currentText) : qsTr("Scanned keys"); onActivated: finalSshKeyField.text = currentText }
+                        Label { text: qsTr("Key Path"); visible: finalSshAuthModeCombo.currentIndex === 1 }
+                        ThemedTextField { id: finalSshKeyField; Layout.fillWidth: true; visible: finalSshAuthModeCombo.currentIndex === 1; placeholderText: qsTr("paste final-host private-key path") }
+                        Label { text: qsTr("Password"); visible: finalSshAuthModeCombo.currentIndex === 2 }
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: finalSshAuthModeCombo.currentIndex === 2
+                            ThemedTextField { id: finalSshPasswordField; Layout.fillWidth: true; echoMode: TextInput.Password; placeholderText: qsTr("final-host password") }
+                            ToolButton {
+                                text: qsTr("👁")
+                                ToolTip.visible: hovered
+                                ToolTip.text: qsTr("Hold to reveal password")
+                                onPressed: finalSshPasswordField.echoMode = TextInput.Normal
+                                onReleased: finalSshPasswordField.echoMode = TextInput.Password
+                                onCanceled: finalSshPasswordField.echoMode = TextInput.Password
+                            }
+                        }
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Button {
+                    text: qsTr("+ Add Hop")
+                    onClicked: nestedHopModel.append({ user: "", host: "", port: 22, authMode: 0, key: "", password: "" })
+                }
+                Item { Layout.fillWidth: true }
+                Button { text: qsTr("Clear"); onClicked: nestedHopModel.clear() }
+            }
+        }
     }
 
     Dialog {
@@ -492,6 +725,7 @@ ApplicationWindow {
                 enabled: remoteModel.connected
                 onClicked: {
                     remoteModel.disconnect()
+                    backend.stopSshTunnel()
                     root.activeHost = ""
                     root.activeUsername = ""
                     root.activePassword = ""
@@ -621,8 +855,10 @@ ApplicationWindow {
                         selectedSiteLine = modelData
                         var fields = modelData.split("\t")
                         siteNameField.text = fields[0] || ""
+                        var savedProtocol = (fields[1] || "sftp").toUpperCase()
+                        protocolCombo.currentIndex = Math.max(0, protocolCombo.model.indexOf(savedProtocol))
                         siteHostField.text = fields[2] || ""
-                        sitePortField.value = Number(fields[3] || 22)
+                        sitePortField.value = Number(fields[3] || root.defaultPortForProtocol(protocolCombo.currentText))
                         siteUsernameField.text = fields[4] || ""
                         siteRemotePathField.text = fields[5] || "/"
                         siteCredentialRefField.text = fields[6] || ""
@@ -630,18 +866,36 @@ ApplicationWindow {
                 }
             }
 
-            GridLayout {
+            ScrollView {
+                id: siteFormScroll
                 Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                ScrollBar.vertical.policy: ScrollBar.AsNeeded
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+            GridLayout {
+                width: siteFormScroll.availableWidth
                 columns: 2
 
                 Label { text: qsTr("Protocol") }
                 ComboBox {
                     id: protocolCombo
                     Layout.fillWidth: true
-                    model: ["SFTP"]
-                    ToolTip.visible: hovered
-                    ToolTip.text: qsTr("V1 live connectivity uses the SFTP backend. SCP/FTP/FTPS/WebDAV/S3 are modeled in core and will get live adapters after SFTP stabilizes.")
-                }
+                model: ["SFTP", "SCP", "FTP", "FTPS", "WebDAV", "S3"]
+                onCurrentTextChanged: sitePortField.value = root.defaultPortForProtocol(currentText)
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("SFTP, SCP transfer-only, FTP, and explicit FTPS are live. WebDAV/S3 are selectable for profile planning and will be enabled as their adapters land.")
+            }
+
+            Label { text: ""; visible: !root.protocolIsLive(protocolCombo.currentText) }
+            Label {
+                Layout.fillWidth: true
+                visible: !root.protocolIsLive(protocolCombo.currentText)
+                color: root.themeError
+                wrapMode: Text.WordWrap
+                            text: qsTr("%1 adapter is planned but not implemented yet. Select SFTP, SCP, FTP, or FTPS for live connections.").arg(protocolCombo.currentText)
+            }
 
                 Label { text: qsTr("Authentication") }
                 ComboBox { id: authMethodCombo; Layout.fillWidth: true; model: ["Password", "SSH Private Key"] }
@@ -653,7 +907,15 @@ ApplicationWindow {
                 ThemedTextField { id: siteHostField; Layout.fillWidth: true; placeholderText: qsTr("sftp.example.com") }
 
                 Label { text: qsTr("Port") }
-                SpinBox { id: sitePortField; from: 1; to: 65535; value: 22 }
+                SpinBox {
+                    id: sitePortField
+                    from: 1
+                    to: 65535
+                    value: 22
+                    editable: true
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Type the target service port, for example 22, 2222, 21, 1204, or another custom port.")
+                }
 
                 Label { text: qsTr("Username") }
                 ThemedTextField { id: siteUsernameField; Layout.fillWidth: true; placeholderText: qsTr("alice") }
@@ -664,18 +926,154 @@ ApplicationWindow {
                 Label { text: qsTr("Credential Reference") }
                 ThemedTextField { id: siteCredentialRefField; Layout.fillWidth: true; placeholderText: qsTr("keychain://site-name") }
 
-                Label { text: qsTr("Password (not saved)") }
-                ThemedTextField {
-                    id: sitePasswordField
+                Label { text: qsTr("Advanced Connection") }
+                ComboBox {
+                    id: connectionModeCombo
                     Layout.fillWidth: true
-                    enabled: authMethodCombo.currentText === "Password"
-                    echoMode: TextInput.Password
-                    placeholderText: qsTr("SFTP password for this connection")
+                    model: [
+                        qsTr("Direct host/port"),
+                        qsTr("Use existing local tunnel"),
+                        qsTr("SSH jump host via local tunnel"),
+                        qsTr("Nested SSH hops / ProxyJump"),
+                        qsTr("VPN / private network (direct after VPN)"),
+                        qsTr("SOCKS/HTTP proxy (planned)")
+                    ]
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("CrossSCP connects to the effective host/port. For jump hosts, create the SSH tunnel first, then connect through localhost.")
                 }
 
-                Label { text: qsTr("Private Key") }
+                Label { text: qsTr("Tunnel Local Host"); visible: root.advancedConnectionUsesLocalTunnel() }
+                ThemedTextField {
+                    id: tunnelLocalHostField
+                    Layout.fillWidth: true
+                    visible: root.advancedConnectionUsesLocalTunnel()
+                    text: "127.0.0.1"
+                    placeholderText: qsTr("127.0.0.1")
+                }
+
+                Label { text: qsTr("Tunnel Local Port"); visible: root.advancedConnectionUsesLocalTunnel() }
+                SpinBox {
+                    id: tunnelLocalPortField
+                    visible: root.advancedConnectionUsesLocalTunnel()
+                    from: 1
+                    to: 65535
+                    value: 2222
+                    editable: true
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("Type any available local port, for example 2222, 2200, or 10022.")
+                }
+
+                Label { text: qsTr("Jump Host"); visible: connectionModeCombo.currentIndex === 2 }
                 RowLayout {
                     Layout.fillWidth: true
+                    visible: connectionModeCombo.currentIndex === 2
+                    ThemedTextField { id: jumpUsernameField; Layout.preferredWidth: 160; placeholderText: qsTr("jump user") }
+                    ThemedTextField { id: jumpHostField; Layout.fillWidth: true; placeholderText: qsTr("bastion.example.com") }
+                    SpinBox {
+                        id: jumpPortField
+                        from: 1
+                        to: 65535
+                        value: 22
+                        editable: true
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Type the SSH port for the jump host, usually 22 or a custom SSH port.")
+                    }
+                }
+
+                Label { text: qsTr("Nested Hop Builder"); visible: connectionModeCombo.currentIndex === 3 }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: connectionModeCombo.currentIndex === 3
+                    Label { Layout.fillWidth: true; text: root.nestedHopChainLabel(); elide: Text.ElideRight; color: root.themeSubtle }
+                    Button { text: qsTr("Manage Hops…"); onClicked: nestedHopDialog.open() }
+                }
+
+                Label { text: qsTr("Jump Password"); visible: connectionModeCombo.currentIndex === 2 }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: connectionModeCombo.currentIndex === 2
+                    ThemedTextField {
+                        id: jumpPasswordField
+                        Layout.fillWidth: true
+                        echoMode: TextInput.Password
+                        placeholderText: qsTr("Optional jump-host password; not saved")
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Used only to answer the system ssh password prompt for the jump host. Prefer SSH agent/key auth when possible.")
+                    }
+                    ToolButton {
+                        text: qsTr("👁")
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Hold to reveal password")
+                        onPressed: jumpPasswordField.echoMode = TextInput.Normal
+                        onReleased: jumpPasswordField.echoMode = TextInput.Password
+                        onCanceled: jumpPasswordField.echoMode = TextInput.Password
+                    }
+                }
+
+                Label { text: ""; visible: connectionModeCombo.currentIndex !== 0 }
+                Label {
+                    Layout.fillWidth: true
+                    visible: connectionModeCombo.currentIndex !== 0
+                    color: connectionModeCombo.currentIndex === 5 ? root.themeError : root.themeSubtle
+                    wrapMode: Text.WordWrap
+                    text: connectionModeCombo.currentIndex === 1
+                          ? qsTr("Start your tunnel first, then CrossSCP will connect to %1:%2 instead of the site host directly.").arg(tunnelLocalHostField.text).arg(tunnelLocalPortField.value)
+                          : connectionModeCombo.currentIndex === 2
+                            ? qsTr("CrossSCP can start this tunnel automatically with ssh. If it fails, run this command in Terminal and use Existing local tunnel:\n%1").arg(root.suggestedTunnelCommand())
+                            : connectionModeCombo.currentIndex === 3
+                              ? qsTr("CrossSCP will start a nested ProxyJump tunnel. Use Manage Hops for per-hop keys/passwords. Equivalent command:\n%1").arg(root.suggestedProxyJumpCommand())
+                            : connectionModeCombo.currentIndex === 4
+                              ? qsTr("Connect your VPN first, then use Direct host/port or leave this reminder selected.")
+                              : qsTr("SOCKS/HTTP proxy is documented as a scenario but is not implemented in the backend yet.")
+                }
+
+                Label { text: qsTr("Password (not saved)"); visible: authMethodCombo.currentText === "Password" }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: authMethodCombo.currentText === "Password"
+                    ThemedTextField {
+                        id: sitePasswordField
+                        Layout.fillWidth: true
+                        enabled: authMethodCombo.currentText === "Password"
+                        echoMode: TextInput.Password
+                        placeholderText: qsTr("SFTP password for this connection")
+                    }
+                    ToolButton {
+                        text: qsTr("👁")
+                        enabled: authMethodCombo.currentText === "Password"
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Hold to reveal password")
+                        onPressed: sitePasswordField.echoMode = TextInput.Normal
+                        onReleased: sitePasswordField.echoMode = TextInput.Password
+                        onCanceled: sitePasswordField.echoMode = TextInput.Password
+                    }
+                }
+
+                Label { text: qsTr("SSH Key Type"); visible: authMethodCombo.currentText === "SSH Private Key" }
+                ComboBox {
+                    id: sshKeyTypeCombo
+                    Layout.fillWidth: true
+                    visible: authMethodCombo.currentText === "SSH Private Key"
+                    enabled: authMethodCombo.currentText === "SSH Private Key"
+                    model: [
+                        qsTr("Auto-detect from key file"),
+                        qsTr("Ed25519"),
+                        qsTr("RSA"),
+                        qsTr("ECDSA P-256"),
+                        qsTr("ECDSA P-384"),
+                        qsTr("ECDSA P-521"),
+                        qsTr("DSA / DSS (legacy)"),
+                        qsTr("FIDO/U2F Ed25519-SK (backend-dependent)"),
+                        qsTr("FIDO/U2F ECDSA-SK (backend-dependent)")
+                    ]
+                    ToolTip.visible: hovered
+                    ToolTip.text: qsTr("The ssh2/libssh2 backend auto-detects the private-key file format. Hardware-backed FIDO/U2F keys may require extra backend support and can fail even when listed.")
+                }
+
+                Label { text: qsTr("Private Key"); visible: authMethodCombo.currentText === "SSH Private Key" }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: authMethodCombo.currentText === "SSH Private Key"
                     ComboBox {
                         id: sshKeyCombo
                         Layout.preferredWidth: 250
@@ -698,14 +1096,37 @@ ApplicationWindow {
                     }
                 }
 
-                Label { text: qsTr("Key Passphrase") }
-                ThemedTextField {
-                    id: sitePrivateKeyPassphraseField
+                Label { text: qsTr("Key Passphrase"); visible: authMethodCombo.currentText === "SSH Private Key" }
+                RowLayout {
                     Layout.fillWidth: true
-                    enabled: authMethodCombo.currentText === "SSH Private Key"
-                    echoMode: TextInput.Password
-                    placeholderText: qsTr("Optional private key passphrase")
+                    visible: authMethodCombo.currentText === "SSH Private Key"
+                    ThemedTextField {
+                        id: sitePrivateKeyPassphraseField
+                        Layout.fillWidth: true
+                        enabled: authMethodCombo.currentText === "SSH Private Key"
+                        echoMode: TextInput.Password
+                        placeholderText: qsTr("Optional private key passphrase")
+                    }
+                    ToolButton {
+                        text: qsTr("👁")
+                        enabled: authMethodCombo.currentText === "SSH Private Key"
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Hold to reveal passphrase")
+                        onPressed: sitePrivateKeyPassphraseField.echoMode = TextInput.Normal
+                        onReleased: sitePrivateKeyPassphraseField.echoMode = TextInput.Password
+                        onCanceled: sitePrivateKeyPassphraseField.echoMode = TextInput.Password
+                    }
                 }
+
+                Label { text: ""; visible: authMethodCombo.currentText === "SSH Private Key" }
+                Label {
+                    Layout.fillWidth: true
+                    visible: authMethodCombo.currentText === "SSH Private Key"
+                    color: root.themeSubtle
+                    wrapMode: Text.WordWrap
+                    text: qsTr("Note: changing keys currently runs the remote connection/list command synchronously, so an unreachable host, wrong passphrase, or unsupported key type can make the window appear stuck until the CLI timeout returns. The next UX fix is to move connect/list into an async QProcess like transfers.")
+                }
+            }
             }
 
             GridLayout {
@@ -720,7 +1141,7 @@ ApplicationWindow {
                     text: qsTr("Save")
                     Layout.fillWidth: true
                     onClicked: {
-                        if (backend.saveSite(siteNameField.text, siteHostField.text, sitePortField.value, siteUsernameField.text, siteRemotePathField.text, siteCredentialRefField.text)) {
+                        if (backend.saveSite(protocolCombo.currentText.toLowerCase(), siteNameField.text, siteHostField.text, sitePortField.value, siteUsernameField.text, siteRemotePathField.text, siteCredentialRefField.text)) {
                             savedSites = backend.listSites()
                             root.addLog(qsTr("Saved site profile %1").arg(siteNameField.text))
                         }
@@ -741,20 +1162,60 @@ ApplicationWindow {
                     Layout.fillWidth: true
                     onClicked: {
                         var connected = false
+                        if (!root.protocolIsLive(protocolCombo.currentText)) {
+                            statusText = qsTr("%1 is planned but not live yet. Use SFTP, SCP, FTP, or FTPS for now.").arg(protocolCombo.currentText)
+                            return
+                        }
+                        if (protocolCombo.currentText !== "SFTP" && protocolCombo.currentText !== "SCP" && authMethodCombo.currentText === "SSH Private Key") {
+                            statusText = qsTr("%1 supports password authentication in this release. Select Password.").arg(protocolCombo.currentText)
+                            return
+                        }
+                        if (connectionModeCombo.currentIndex === 5) {
+                            statusText = qsTr("SOCKS/HTTP proxy mode is planned but not implemented yet. Use a local tunnel or VPN workaround.")
+                            return
+                        }
+                        var connectHost = root.effectiveConnectionHost()
+                        var connectPort = root.effectiveConnectionPort()
+                        if (connectionModeCombo.currentIndex === 2) {
+                            if (!backend.startSshTunnel(siteHostField.text, sitePortField.value, tunnelLocalHostField.text, tunnelLocalPortField.value, jumpUsernameField.text, jumpHostField.text, jumpPortField.value, authMethodCombo.currentText === "SSH Private Key" ? sitePrivateKeyField.text : "", jumpPasswordField.text)) {
+                                statusText = backend.status
+                                root.addLog(qsTr("SSH jump-host tunnel failed: %1").arg(backend.status))
+                                return
+                            }
+                            root.addLog(qsTr("Started SSH jump-host tunnel to %1:%2 via %3:%4").arg(siteHostField.text).arg(sitePortField.value).arg(jumpHostField.text).arg(jumpPortField.value))
+                        }
+                        if (connectionModeCombo.currentIndex === 3) {
+                            var hopSpecs = root.effectiveNestedHopSpecs()
+                            if (hopSpecs.length === 0 || finalSshHostField.text.trim().length === 0) {
+                                statusText = qsTr("Nested SSH hops require at least Hop 1 and Final SSH Host.")
+                                return
+                            }
+                            var finalKey = finalSshAuthModeCombo.currentIndex === 1 ? finalSshKeyField.text : ""
+                            var finalPassword = finalSshAuthModeCombo.currentIndex === 2 ? finalSshPasswordField.text : ""
+                            if (!backend.startManagedNestedTunnel(siteHostField.text, sitePortField.value, tunnelLocalHostField.text, tunnelLocalPortField.value, hopSpecs, finalSshUsernameField.text, finalSshHostField.text, finalSshPortField.value, finalKey, finalPassword)) {
+                                statusText = backend.status
+                                root.addLog(qsTr("Nested SSH tunnel failed: %1").arg(backend.status))
+                                return
+                            }
+                            root.addLog(qsTr("Started managed nested SSH tunnel to %1:%2 via %3 hop(s)").arg(siteHostField.text).arg(sitePortField.value).arg(nestedHopModel.count > 0 ? nestedHopModel.count : 1))
+                        }
                         if (authMethodCombo.currentText === "SSH Private Key") {
-                            connected = remoteModel.connectKey(siteHostField.text, sitePortField.value, siteUsernameField.text, sitePrivateKeyField.text, sitePrivateKeyPassphraseField.text, siteRemotePathField.text)
+                            connected = remoteModel.connectKey(protocolCombo.currentText.toLowerCase(), connectHost, connectPort, siteUsernameField.text, sitePrivateKeyField.text, sitePrivateKeyPassphraseField.text, siteRemotePathField.text)
                         } else {
-                            connected = remoteModel.connectPassword(siteHostField.text, sitePortField.value, siteUsernameField.text, sitePasswordField.text, siteRemotePathField.text)
+                            connected = remoteModel.connectPassword(protocolCombo.currentText.toLowerCase(), connectHost, connectPort, siteUsernameField.text, sitePasswordField.text, siteRemotePathField.text)
                         }
                         if (connected) {
-                            root.activeHost = siteHostField.text.trim()
-                            root.activePort = sitePortField.value
+                            root.activeProtocol = protocolCombo.currentText.toLowerCase()
+                            root.activeHost = connectHost
+                            root.activePort = connectPort
                             root.activeUsername = siteUsernameField.text.trim()
                             root.activePassword = authMethodCombo.currentText === "Password" ? sitePasswordField.text : ""
                             root.activePrivateKeyPath = authMethodCombo.currentText === "SSH Private Key" ? sitePrivateKeyField.text.trim() : ""
                             root.activePrivateKeyPassphrase = authMethodCombo.currentText === "SSH Private Key" ? sitePrivateKeyPassphraseField.text : ""
-                            root.addLog(qsTr("Connected to %1:%2 as %3").arg(siteHostField.text).arg(sitePortField.value).arg(siteUsernameField.text))
+                            root.addLog(qsTr("Connected to %1:%2 as %3").arg(connectHost).arg(connectPort).arg(siteUsernameField.text))
                             siteManagerDialog.close()
+                        } else if (connectionModeCombo.currentIndex === 2 || connectionModeCombo.currentIndex === 3) {
+                            backend.stopSshTunnel()
                         }
                     }
                 }
