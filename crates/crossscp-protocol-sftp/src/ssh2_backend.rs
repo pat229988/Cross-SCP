@@ -50,7 +50,8 @@ impl Ssh2Backend {
         let session = self.session.as_ref().ok_or(SftpError::NotConnected)?;
         let local_metadata = fs::metadata(local_path)?;
         let sftp = session.sftp()?;
-        let destination = resolve_upload_destination(&sftp, local_path, remote_path);
+        let remote_path = normalize_remote_path(&sftp, remote_path);
+        let destination = resolve_upload_destination(&sftp, local_path, &remote_path);
         if local_metadata.is_dir() {
             let bytes_total = local_directory_size(Path::new(local_path))?;
             let mut bytes_done = 0;
@@ -99,26 +100,27 @@ impl Ssh2Backend {
     {
         let session = self.session.as_ref().ok_or(SftpError::NotConnected)?;
         let sftp = session.sftp()?;
-        let remote_stat = sftp.stat(Path::new(remote_path)).ok();
+        let remote_path = normalize_remote_path(&sftp, remote_path);
+        let remote_stat = sftp.stat(Path::new(&remote_path)).ok();
         if remote_stat
             .as_ref()
             .and_then(|stat| stat.perm)
             .is_some_and(is_directory_perm)
         {
-            let destination = resolve_download_directory_destination(remote_path, local_path);
-            let bytes_total = remote_directory_size(&sftp, remote_path)?;
+            let destination = resolve_download_directory_destination(&remote_path, local_path);
+            let bytes_total = remote_directory_size(&sftp, &remote_path)?;
             let mut bytes_done = 0;
             report_progress(0, Some(bytes_total));
             download_directory_recursive_with_progress(
                 &sftp,
-                remote_path,
+                &remote_path,
                 Path::new(&destination),
                 bytes_total,
                 &mut bytes_done,
                 &mut report_progress,
             )?;
             return Ok(SftpFileProgress {
-                source: remote_path.to_string(),
+                source: remote_path,
                 destination,
                 bytes_done,
                 bytes_total: Some(bytes_total),
@@ -129,7 +131,7 @@ impl Ssh2Backend {
                 fs::create_dir_all(parent)?;
             }
         }
-        let mut remote_file = sftp.open(Path::new(remote_path))?;
+        let mut remote_file = sftp.open(Path::new(&remote_path))?;
         let mut local_file = fs::File::create(local_path)?;
         let bytes_total = remote_stat.and_then(|stat| stat.size);
         let bytes_done = copy_with_progress(
@@ -140,7 +142,7 @@ impl Ssh2Backend {
         )?;
 
         Ok(SftpFileProgress {
-            source: remote_path.to_string(),
+            source: remote_path,
             destination: local_path.to_string(),
             bytes_done,
             bytes_total,
@@ -220,9 +222,10 @@ impl SftpBackend for Ssh2Backend {
     fn list_directory(&mut self, path: &str) -> Result<Vec<SftpRemoteFile>, SftpError> {
         let session = self.session.as_ref().ok_or(SftpError::NotConnected)?;
         let sftp = session.sftp()?;
+        let path = normalize_remote_path(&sftp, path);
         let mut entries = Vec::new();
 
-        for (entry_path, stat) in sftp.readdir(Path::new(path))? {
+        for (entry_path, stat) in sftp.readdir(Path::new(&path))? {
             let name = entry_name(&entry_path);
             if name == "." || name == ".." {
                 continue;
@@ -231,7 +234,7 @@ impl SftpBackend for Ssh2Backend {
             let permissions = stat.perm;
             entries.push(SftpRemoteFile {
                 name,
-                path: remote_child_path(path, &entry_path),
+                path: remote_child_path(&path, &entry_path),
                 size: stat.size,
                 is_directory: permissions.is_some_and(is_directory_perm),
                 is_symlink: permissions.is_some_and(is_symlink_perm),
@@ -251,7 +254,8 @@ impl SftpBackend for Ssh2Backend {
         let session = self.session.as_ref().ok_or(SftpError::NotConnected)?;
         let local_metadata = fs::metadata(local_path)?;
         let sftp = session.sftp()?;
-        let destination = resolve_upload_destination(&sftp, local_path, remote_path);
+        let remote_path = normalize_remote_path(&sftp, remote_path);
+        let destination = resolve_upload_destination(&sftp, local_path, &remote_path);
         if local_metadata.is_dir() {
             let bytes_done =
                 upload_directory_recursive(&sftp, Path::new(local_path), &destination)?;
@@ -281,17 +285,18 @@ impl SftpBackend for Ssh2Backend {
     ) -> Result<SftpFileProgress, SftpError> {
         let session = self.session.as_ref().ok_or(SftpError::NotConnected)?;
         let sftp = session.sftp()?;
-        let remote_stat = sftp.stat(Path::new(remote_path)).ok();
+        let remote_path = normalize_remote_path(&sftp, remote_path);
+        let remote_stat = sftp.stat(Path::new(&remote_path)).ok();
         if remote_stat
             .as_ref()
             .and_then(|stat| stat.perm)
             .is_some_and(is_directory_perm)
         {
-            let destination = resolve_download_directory_destination(remote_path, local_path);
+            let destination = resolve_download_directory_destination(&remote_path, local_path);
             let bytes_done =
-                download_directory_recursive(&sftp, remote_path, Path::new(&destination))?;
+                download_directory_recursive(&sftp, &remote_path, Path::new(&destination))?;
             return Ok(SftpFileProgress {
-                source: remote_path.to_string(),
+                source: remote_path.clone(),
                 destination,
                 bytes_done,
                 bytes_total: Some(bytes_done),
@@ -302,12 +307,12 @@ impl SftpBackend for Ssh2Backend {
                 fs::create_dir_all(parent)?;
             }
         }
-        let mut remote_file = sftp.open(Path::new(remote_path))?;
+        let mut remote_file = sftp.open(Path::new(&remote_path))?;
         let mut local_file = fs::File::create(local_path)?;
         let bytes_done = std::io::copy(&mut remote_file, &mut local_file)?;
 
         Ok(SftpFileProgress {
-            source: remote_path.to_string(),
+            source: remote_path,
             destination: local_path.to_string(),
             bytes_done,
             bytes_total: remote_stat.and_then(|stat| stat.size),
@@ -317,14 +322,40 @@ impl SftpBackend for Ssh2Backend {
     fn create_directory(&mut self, remote_path: &str) -> Result<(), SftpError> {
         let session = self.session.as_ref().ok_or(SftpError::NotConnected)?;
         let sftp = session.sftp()?;
-        ensure_remote_directory(&sftp, remote_path)
+        let remote_path = normalize_remote_path(&sftp, remote_path);
+        ensure_remote_directory(&sftp, &remote_path)
     }
 
     fn delete_path(&mut self, remote_path: &str) -> Result<(), SftpError> {
         let session = self.session.as_ref().ok_or(SftpError::NotConnected)?;
         let sftp = session.sftp()?;
-        delete_remote_path_recursive(&sftp, remote_path)
+        let remote_path = normalize_remote_path(&sftp, remote_path);
+        delete_remote_path_recursive(&sftp, &remote_path)
     }
+}
+
+fn normalize_remote_path(sftp: &ssh2::Sftp, path: &str) -> String {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed == "." {
+        return sftp
+            .realpath(Path::new("."))
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| ".".to_string());
+    }
+    if trimmed == "~" {
+        return sftp
+            .realpath(Path::new("."))
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| ".".to_string());
+    }
+    if let Some(rest) = trimmed.strip_prefix("~/") {
+        let home = sftp
+            .realpath(Path::new("."))
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|_| ".".to_string());
+        return remote_join(&home, rest);
+    }
+    trimmed.to_string()
 }
 
 fn entry_name(path: &Path) -> String {

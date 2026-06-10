@@ -67,8 +67,8 @@ bool RemoteFileModel::connectPassword(const QString &protocol, const QString &ho
   password_ = password;
   privateKeyPath_.clear();
   privateKeyPassphrase_.clear();
-  if (protocol_ != QStringLiteral("sftp") && protocol_ != QStringLiteral("ftp") &&
-      protocol_ != QStringLiteral("ftps")) {
+  if (protocol_ != QStringLiteral("sftp") && protocol_ != QStringLiteral("scp") &&
+      protocol_ != QStringLiteral("ftp") && protocol_ != QStringLiteral("ftps")) {
     setError(QStringLiteral("Selected protocol is not implemented yet"));
     connected_ = false;
     emit connectedChanged();

@@ -371,6 +371,16 @@ ApplicationWindow {
     }
 
     Connections {
+        target: remoteModel
+        function onPathChanged() {
+            root.clearRemoteSelection()
+        }
+        function onConnectedChanged() {
+            root.clearRemoteSelection()
+        }
+    }
+
+    Connections {
         target: leftModel
         function onPathChanged() {
             root.clearLocalSelection()
@@ -408,6 +418,119 @@ ApplicationWindow {
 
     function effectiveNestedHopSpecs() {
         return root.serializeNestedHops()
+    }
+
+    function profileDisplayText(line) {
+        if (line && line.trim().charAt(0) === "{") {
+            try {
+                var profile = JSON.parse(line)
+                return (profile.name || qsTr("Unnamed")) + "  —  " + (profile.protocol || "sftp").toUpperCase() + "  " + (profile.host || "")
+            } catch (e) {
+                return qsTr("Invalid saved profile")
+            }
+        }
+        var fields = line.split("\t")
+        return line.length > 0 ? fields[0] + "  —  " + fields[2] : ""
+    }
+
+    function nestedHopsAsArray() {
+        var hops = []
+        for (var i = 0; i < nestedHopModel.count; i++) {
+            var hop = nestedHopModel.get(i)
+            hops.push({
+                user: hop.user || "",
+                host: hop.host || "",
+                port: hop.port || 22,
+                authMode: hop.authMode === undefined ? 0 : hop.authMode,
+                key: hop.key || ""
+            })
+        }
+        return hops
+    }
+
+    function currentSiteConfigurationJson() {
+        var profileName = siteNameField.text.trim()
+        if (profileName.length === 0) {
+            profileName = (siteUsernameField.text.trim().length > 0 ? siteUsernameField.text.trim() + "@" : "") + siteHostField.text.trim()
+        }
+        return JSON.stringify({
+            schema: 1,
+            name: profileName,
+            protocol: protocolCombo.currentText.toLowerCase(),
+            authMethod: authMethodCombo.currentText,
+            host: siteHostField.text.trim(),
+            port: sitePortField.value,
+            username: siteUsernameField.text.trim(),
+            remotePath: siteRemotePathField.text.trim().length > 0 ? siteRemotePathField.text.trim() : "/",
+            credentialRef: siteCredentialRefField.text.trim(),
+            privateKeyPath: sitePrivateKeyField.text.trim(),
+            sshKeyTypeIndex: sshKeyTypeCombo.currentIndex,
+            connectionModeIndex: connectionModeCombo.currentIndex,
+            tunnelLocalHost: tunnelLocalHostField.text.trim().length > 0 ? tunnelLocalHostField.text.trim() : "127.0.0.1",
+            tunnelLocalPort: tunnelLocalPortField.value,
+            jumpUsername: jumpUsernameField.text.trim(),
+            jumpHost: jumpHostField.text.trim(),
+            jumpPort: jumpPortField.value,
+            nestedHops: root.nestedHopsAsArray(),
+            finalSshUsername: finalSshUsernameField.text.trim(),
+            finalSshHost: finalSshHostField.text.trim(),
+            finalSshPort: finalSshPortField.value,
+            finalSshAuthModeIndex: finalSshAuthModeCombo.currentIndex,
+            finalSshKeyPath: finalSshKeyField.text.trim()
+        })
+    }
+
+    function applySiteConfigurationLine(line) {
+        selectedSiteLine = line
+        if (line && line.trim().charAt(0) === "{") {
+            try {
+                var profile = JSON.parse(line)
+                siteNameField.text = profile.name || ""
+                var savedProtocol = (profile.protocol || "sftp").toUpperCase()
+                protocolCombo.currentIndex = Math.max(0, protocolCombo.model.indexOf(savedProtocol))
+                authMethodCombo.currentIndex = authMethodCombo.model.indexOf(profile.authMethod || "Password") >= 0 ? authMethodCombo.model.indexOf(profile.authMethod || "Password") : 0
+                siteHostField.text = profile.host || ""
+                sitePortField.value = Number(profile.port || root.defaultPortForProtocol(protocolCombo.currentText))
+                siteUsernameField.text = profile.username || ""
+                siteRemotePathField.text = profile.remotePath || "/"
+                siteCredentialRefField.text = profile.credentialRef || ""
+                sitePrivateKeyField.text = profile.privateKeyPath || ""
+                sshKeyTypeCombo.currentIndex = Number(profile.sshKeyTypeIndex || 0)
+                connectionModeCombo.currentIndex = Number(profile.connectionModeIndex || 0)
+                tunnelLocalHostField.text = profile.tunnelLocalHost || "127.0.0.1"
+                tunnelLocalPortField.value = Number(profile.tunnelLocalPort || 2222)
+                jumpUsernameField.text = profile.jumpUsername || ""
+                jumpHostField.text = profile.jumpHost || ""
+                jumpPortField.value = Number(profile.jumpPort || 22)
+                nestedHopModel.clear()
+                var hops = profile.nestedHops || []
+                for (var i = 0; i < hops.length; i++) {
+                    nestedHopModel.append({ user: hops[i].user || "", host: hops[i].host || "", port: Number(hops[i].port || 22), authMode: Number(hops[i].authMode || 0), key: hops[i].key || "", password: "" })
+                }
+                finalSshUsernameField.text = profile.finalSshUsername || ""
+                finalSshHostField.text = profile.finalSshHost || ""
+                finalSshPortField.value = Number(profile.finalSshPort || 22)
+                finalSshAuthModeCombo.currentIndex = Number(profile.finalSshAuthModeIndex || 0)
+                finalSshKeyField.text = profile.finalSshKeyPath || ""
+                sitePasswordField.text = ""
+                sitePrivateKeyPassphraseField.text = ""
+                jumpPasswordField.text = ""
+                finalSshPasswordField.text = ""
+                root.addLog(qsTr("Restored saved profile %1").arg(siteNameField.text))
+                return
+            } catch (e) {
+                root.addLog(qsTr("Saved profile parse failed: %1").arg(e))
+            }
+        }
+        var fields = line.split("\t")
+        siteNameField.text = fields[0] || ""
+        var legacyProtocol = (fields[1] || "sftp").toUpperCase()
+        protocolCombo.currentIndex = Math.max(0, protocolCombo.model.indexOf(legacyProtocol))
+        siteHostField.text = fields[2] || ""
+        sitePortField.value = Number(fields[3] || root.defaultPortForProtocol(protocolCombo.currentText))
+        siteUsernameField.text = fields[4] || ""
+        siteRemotePathField.text = fields[5] || "/"
+        siteCredentialRefField.text = fields[6] || ""
     }
 
     function nestedHopChainLabel() {
@@ -850,19 +973,8 @@ ApplicationWindow {
                 model: savedSites
                 delegate: ItemDelegate {
                     width: ListView.view.width
-                    text: modelData.length > 0 ? modelData.split("\t")[0] + "  —  " + modelData.split("\t")[2] : ""
-                    onClicked: {
-                        selectedSiteLine = modelData
-                        var fields = modelData.split("\t")
-                        siteNameField.text = fields[0] || ""
-                        var savedProtocol = (fields[1] || "sftp").toUpperCase()
-                        protocolCombo.currentIndex = Math.max(0, protocolCombo.model.indexOf(savedProtocol))
-                        siteHostField.text = fields[2] || ""
-                        sitePortField.value = Number(fields[3] || root.defaultPortForProtocol(protocolCombo.currentText))
-                        siteUsernameField.text = fields[4] || ""
-                        siteRemotePathField.text = fields[5] || "/"
-                        siteCredentialRefField.text = fields[6] || ""
-                    }
+                    text: root.profileDisplayText(modelData)
+                    onClicked: root.applySiteConfigurationLine(modelData)
                 }
             }
 
@@ -1141,9 +1253,9 @@ ApplicationWindow {
                     text: qsTr("Save")
                     Layout.fillWidth: true
                     onClicked: {
-                        if (backend.saveSite(protocolCombo.currentText.toLowerCase(), siteNameField.text, siteHostField.text, sitePortField.value, siteUsernameField.text, siteRemotePathField.text, siteCredentialRefField.text)) {
+                        if (backend.saveSiteConfiguration(root.currentSiteConfigurationJson())) {
                             savedSites = backend.listSites()
-                            root.addLog(qsTr("Saved site profile %1").arg(siteNameField.text))
+                            root.addLog(qsTr("Saved full site profile %1").arg(siteNameField.text.length > 0 ? siteNameField.text : siteHostField.text))
                         }
                     }
                 }
@@ -1212,6 +1324,10 @@ ApplicationWindow {
                             root.activePassword = authMethodCombo.currentText === "Password" ? sitePasswordField.text : ""
                             root.activePrivateKeyPath = authMethodCombo.currentText === "SSH Private Key" ? sitePrivateKeyField.text.trim() : ""
                             root.activePrivateKeyPassphrase = authMethodCombo.currentText === "SSH Private Key" ? sitePrivateKeyPassphraseField.text : ""
+                            if (backend.saveSiteConfiguration(root.currentSiteConfigurationJson())) {
+                                savedSites = backend.listSites()
+                                root.addLog(qsTr("Updated saved profile %1").arg(siteNameField.text.length > 0 ? siteNameField.text : siteHostField.text))
+                            }
                             root.addLog(qsTr("Connected to %1:%2 as %3").arg(connectHost).arg(connectPort).arg(siteUsernameField.text))
                             siteManagerDialog.close()
                         } else if (connectionModeCombo.currentIndex === 2 || connectionModeCombo.currentIndex === 3) {
