@@ -2,9 +2,14 @@
 
 #include "TransferQueueModel.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QProcessEnvironment>
+#include <QStandardPaths>
+#include <QTextStream>
 
 TransferQueueModel::TransferQueueModel(QObject *parent) : QAbstractListModel(parent) {}
 
@@ -52,6 +57,16 @@ QHash<int, QByteArray> TransferQueueModel::roleNames() const {
           {ProgressRole, "progress"}, {BytesDoneRole, "bytesDone"},
           {BytesTotalRole, "bytesTotal"}, {ErrorRole, "error"},
           {SpeedRole, "speed"}, {SpeedTextRole, "speedText"}};
+}
+
+bool TransferQueueModel::useOpenSshBackend() const { return useOpenSshBackend_; }
+
+void TransferQueueModel::setUseOpenSshBackend(bool enabled) {
+  if (useOpenSshBackend_ == enabled) {
+    return;
+  }
+  useOpenSshBackend_ = enabled;
+  emit useOpenSshBackendChanged();
 }
 
 void TransferQueueModel::setBackend(AppBackend *backend) { backend_ = backend; }
@@ -142,20 +157,33 @@ bool TransferQueueModel::enqueueRemoteTransfer(
   }
 
   const bool upload = direction == QStringLiteral("Upload");
-  QStringList arguments = {upload ? QStringLiteral("remote-upload")
-                                  : QStringLiteral("remote-download"),
-                           QStringLiteral("--protocol"),
-                           normalizedProtocol,
-                           QStringLiteral("--host"),
-                           host.trimmed(),
-                           QStringLiteral("--port"),
-                           QString::number(port),
-                           QStringLiteral("--username"),
-                           username.trimmed(),
-                           upload ? QStringLiteral("--local") : QStringLiteral("--remote"),
-                           source.trimmed(),
-                           upload ? QStringLiteral("--remote") : QStringLiteral("--local"),
-                           destination.trimmed()};
+  const bool useOpenSsh = useOpenSshBackend_ &&
+                          (normalizedProtocol == QStringLiteral("sftp") ||
+                           normalizedProtocol == QStringLiteral("scp"));
+  QString program;
+  QStringList arguments;
+  if (useOpenSsh) {
+    program = QStringLiteral("scp");
+    arguments = openSshScpArguments(upload, host.trimmed(), port, username.trimmed(),
+                                    privateKeyPath.trimmed(), source.trimmed(),
+                                    destination.trimmed());
+  } else {
+    program = backend_->cliPath();
+    arguments = {upload ? QStringLiteral("remote-upload")
+                        : QStringLiteral("remote-download"),
+                 QStringLiteral("--protocol"),
+                 normalizedProtocol,
+                 QStringLiteral("--host"),
+                 host.trimmed(),
+                 QStringLiteral("--port"),
+                 QString::number(port),
+                 QStringLiteral("--username"),
+                 username.trimmed(),
+                 upload ? QStringLiteral("--local") : QStringLiteral("--remote"),
+                 source.trimmed(),
+                 upload ? QStringLiteral("--remote") : QStringLiteral("--local"),
+                 destination.trimmed()};
+  }
 
   const int row = jobs_.size();
   beginInsertRows(QModelIndex(), row, row);
@@ -165,10 +193,12 @@ bool TransferQueueModel::enqueueRemoteTransfer(
   job.source = source.trimmed();
   job.destination = destination.trimmed();
   job.state = QStringLiteral("Queued");
+  job.program = program;
   job.arguments = arguments;
   job.password = password;
   job.privateKeyPath = privateKeyPath.trimmed();
   job.privateKeyPassphrase = privateKeyPassphrase;
+  job.usesOpenSsh = useOpenSsh;
   if (upload) {
     const QFileInfo sourceInfo(job.source);
     if (sourceInfo.isFile()) {
@@ -180,6 +210,78 @@ bool TransferQueueModel::enqueueRemoteTransfer(
 
   startNextQueuedTransfer();
   return true;
+}
+
+QStringList TransferQueueModel::openSshScpArguments(
+    bool upload, const QString &host, int port, const QString &username,
+    const QString &privateKeyPath, const QString &source,
+    const QString &destination) const {
+  QStringList arguments = {QStringLiteral("-P"),
+                           QString::number(port),
+                           QStringLiteral("-p"),
+                           QStringLiteral("-r"),
+                           QStringLiteral("-o"),
+                           QStringLiteral("StrictHostKeyChecking=accept-new"),
+                           QStringLiteral("-o"),
+                           QStringLiteral("NumberOfPasswordPrompts=1")};
+  if (privateKeyPath.trimmed().isEmpty()) {
+    arguments.append(QStringLiteral("-o"));
+    arguments.append(QStringLiteral("BatchMode=no"));
+  } else {
+    arguments.append(QStringLiteral("-i"));
+    arguments.append(privateKeyPath.trimmed());
+    arguments.append(QStringLiteral("-o"));
+    arguments.append(QStringLiteral("BatchMode=no"));
+  }
+
+  if (upload) {
+    arguments.append(source);
+    arguments.append(openSshRemoteSpec(username, host, destination));
+  } else {
+    arguments.append(openSshRemoteSpec(username, host, source));
+    arguments.append(destination);
+  }
+  return arguments;
+}
+
+QString TransferQueueModel::openSshRemoteSpec(const QString &username,
+                                              const QString &host,
+                                              const QString &path) const {
+  const QString cleanHost = host.contains(':') && !host.startsWith('[')
+                                ? QStringLiteral("[%1]").arg(host)
+                                : host;
+  return QStringLiteral("%1@%2:%3").arg(username, cleanHost, path);
+}
+
+bool TransferQueueModel::prepareOpenSshAskPass(Job &job) {
+  const QString secret = !job.password.isEmpty() ? job.password : job.privateKeyPassphrase;
+  if (secret.isEmpty()) {
+    return true;
+  }
+
+  const QString tempRoot = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+  job.askPassPath = QDir(tempRoot).filePath(QStringLiteral("crossscp-openssh-askpass-%1-%2.sh")
+                                                .arg(QCoreApplication::applicationPid())
+                                                .arg(currentRow_));
+  QFile askpass(job.askPassPath);
+  if (!askpass.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+    job.askPassPath.clear();
+    return false;
+  }
+  QTextStream stream(&askpass);
+  stream << "#!/bin/sh\n";
+  stream << "printf '%s\\n' \"$CROSSSCP_OPENSSH_SECRET\"\n";
+  askpass.close();
+  QFile::setPermissions(job.askPassPath, QFileDevice::ReadOwner |
+                                             QFileDevice::WriteOwner |
+                                             QFileDevice::ExeOwner);
+  return true;
+}
+
+void TransferQueueModel::cleanupOpenSshAskPass(const Job &job) const {
+  if (!job.askPassPath.isEmpty()) {
+    QFile::remove(job.askPassPath);
+  }
 }
 
 void TransferQueueModel::clearFinished() {
@@ -203,6 +305,9 @@ void TransferQueueModel::clearFinished() {
 
 void TransferQueueModel::clearAll() {
   if (currentProcess_ != nullptr) {
+    if (currentRow_ >= 0 && currentRow_ < jobs_.size()) {
+      cleanupOpenSshAskPass(jobs_.at(currentRow_));
+    }
     currentProcess_->kill();
     currentProcess_->deleteLater();
     currentProcess_ = nullptr;
@@ -249,15 +354,29 @@ void TransferQueueModel::startCurrentProcess() {
 
   currentProcess_ = new QProcess(this);
   QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
-  if (!job.password.isEmpty()) {
+  if (job.usesOpenSsh) {
+    if (!prepareOpenSshAskPass(job)) {
+      failCurrentProcess(QStringLiteral("unable to create temporary OpenSSH askpass helper"));
+      return;
+    }
+    const QString secret = !job.password.isEmpty() ? job.password : job.privateKeyPassphrase;
+    if (!secret.isEmpty()) {
+      environment.insert(QStringLiteral("SSH_ASKPASS"), job.askPassPath);
+      environment.insert(QStringLiteral("SSH_ASKPASS_REQUIRE"), QStringLiteral("force"));
+      environment.insert(QStringLiteral("DISPLAY"), environment.value(QStringLiteral("DISPLAY"), QStringLiteral("crossscp")));
+      environment.insert(QStringLiteral("CROSSSCP_OPENSSH_SECRET"), secret);
+    }
+    job.state = QStringLiteral("Running with OpenSSH fast path");
+    updateRow(currentRow_);
+  } else if (!job.password.isEmpty()) {
     environment.insert(QStringLiteral("CROSSSCP_REMOTE_PASSWORD"), job.password);
     environment.insert(QStringLiteral("CROSSSCP_SFTP_PASSWORD"), job.password);
   }
-  if (!job.privateKeyPath.isEmpty()) {
+  if (!job.usesOpenSsh && !job.privateKeyPath.isEmpty()) {
     environment.insert(QStringLiteral("CROSSSCP_REMOTE_PRIVATE_KEY_PATH"), job.privateKeyPath);
     environment.insert(QStringLiteral("CROSSSCP_SFTP_KEY_PATH"), job.privateKeyPath);
   }
-  if (!job.privateKeyPassphrase.isEmpty()) {
+  if (!job.usesOpenSsh && !job.privateKeyPassphrase.isEmpty()) {
     environment.insert(QStringLiteral("CROSSSCP_REMOTE_PRIVATE_KEY_PASSPHRASE"), job.privateKeyPassphrase);
     environment.insert(QStringLiteral("CROSSSCP_SFTP_KEY_PASSPHRASE"), job.privateKeyPassphrase);
   }
@@ -275,13 +394,16 @@ void TransferQueueModel::startCurrentProcess() {
   connect(currentProcess_, &QProcess::errorOccurred, this,
           [this](QProcess::ProcessError error) {
             if (error == QProcess::FailedToStart) {
-              failCurrentProcess(QStringLiteral("unable to start crossscp CLI"));
+              const QString program = currentRow_ >= 0 && currentRow_ < jobs_.size()
+                                      ? jobs_.at(currentRow_).program
+                                      : QStringLiteral("transfer process");
+              failCurrentProcess(QStringLiteral("unable to start %1").arg(program));
             }
           });
   connect(currentProcess_, &QProcess::finished, this,
           &TransferQueueModel::finishCurrentProcess);
 
-  currentProcess_->start(backend_->cliPath(), job.arguments);
+  currentProcess_->start(job.program, job.arguments);
 }
 
 void TransferQueueModel::consumeProgressOutput() {
@@ -374,11 +496,12 @@ void TransferQueueModel::finishCurrentProcess(int exitCode,
     } else {
       QString error = QString::fromUtf8(errorOutput_).trimmed();
       if (error.isEmpty()) {
-        error = QStringLiteral("crossscp CLI exited with code %1").arg(exitCode);
+        error = QStringLiteral("%1 exited with code %2").arg(job.program, QString::number(exitCode));
       }
       markRowFailed(row, error);
       emit transferFailed(job.direction, job.source, job.destination, error);
     }
+    cleanupOpenSshAskPass(job);
   }
 
   process->deleteLater();
@@ -400,6 +523,7 @@ void TransferQueueModel::failCurrentProcess(const QString &error) {
     markRowFailed(row, error);
     emit transferFailed(jobs_.at(row).direction, jobs_.at(row).source,
                         jobs_.at(row).destination, error);
+    cleanupOpenSshAskPass(jobs_.at(row));
   }
   process->deleteLater();
   startNextQueuedTransfer();

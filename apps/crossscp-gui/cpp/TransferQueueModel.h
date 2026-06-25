@@ -9,6 +9,7 @@
 
 class TransferQueueModel : public QAbstractListModel {
   Q_OBJECT
+  Q_PROPERTY(bool useOpenSshBackend READ useOpenSshBackend WRITE setUseOpenSshBackend NOTIFY useOpenSshBackendChanged)
 
 public:
   enum Roles {
@@ -29,6 +30,8 @@ public:
   int rowCount(const QModelIndex &parent = QModelIndex()) const override;
   QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
   QHash<int, QByteArray> roleNames() const override;
+  bool useOpenSshBackend() const;
+  void setUseOpenSshBackend(bool enabled);
 
   Q_INVOKABLE void setBackend(AppBackend *backend);
   Q_INVOKABLE bool enqueueLocalCopy(const QString &source, const QString &destination);
@@ -64,6 +67,7 @@ public:
   Q_INVOKABLE void clearAll();
 
 signals:
+  void useOpenSshBackendChanged();
   void transferCompleted(const QString &direction, const QString &source,
                          const QString &destination);
   void transferFailed(const QString &direction, const QString &source,
@@ -81,11 +85,14 @@ private:
     qlonglong speedBytesPerSecond = 0;
     qint64 startedAtMs = 0;
     QString error;
+    QString program;
     QStringList arguments;
     QString protocol;
     QString password;
     QString privateKeyPath;
     QString privateKeyPassphrase;
+    QString askPassPath;
+    bool usesOpenSsh = false;
   };
 
   bool enqueueSftpTransfer(const QString &direction, const QString &host, int port,
@@ -94,11 +101,20 @@ private:
                            const QString &privateKeyPassphrase,
                            const QString &source, const QString &destination);
   bool enqueueRemoteTransfer(const QString &direction, const QString &protocol,
-                             const QString &host, int port,
-                             const QString &username, const QString &password,
-                             const QString &privateKeyPath,
-                             const QString &privateKeyPassphrase,
-                             const QString &source, const QString &destination);
+                              const QString &host, int port,
+                              const QString &username, const QString &password,
+                              const QString &privateKeyPath,
+                              const QString &privateKeyPassphrase,
+                              const QString &source, const QString &destination);
+  QStringList openSshScpArguments(bool upload, const QString &host, int port,
+                                  const QString &username,
+                                  const QString &privateKeyPath,
+                                  const QString &source,
+                                  const QString &destination) const;
+  QString openSshRemoteSpec(const QString &username, const QString &host,
+                            const QString &path) const;
+  bool prepareOpenSshAskPass(Job &job);
+  void cleanupOpenSshAskPass(const Job &job) const;
   void startNextQueuedTransfer();
   void startCurrentProcess();
   void consumeProgressOutput();
@@ -117,4 +133,5 @@ private:
   QByteArray progressBuffer_;
   QByteArray errorOutput_;
   QByteArray standardOutput_;
+  bool useOpenSshBackend_ = false;
 };

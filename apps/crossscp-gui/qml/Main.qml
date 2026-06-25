@@ -883,6 +883,19 @@ ApplicationWindow {
                 onToggled: root.darkMode = checked
                 Accessible.name: qsTr("Toggle light and dark mode")
             }
+
+            Switch {
+                id: openSshBackendSwitch
+                checked: queueModel.useOpenSshBackend
+                text: checked ? qsTr("OpenSSH") : qsTr("Rust")
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Use system scp as an external child process for SFTP/SCP transfers. CrossSCP does not link or bundle OpenSSH.")
+                onToggled: {
+                    queueModel.useOpenSshBackend = checked
+                    root.addLog(checked ? qsTr("Enabled OpenSSH transfer backend (external child process)") : qsTr("Enabled internal Rust transfer backend"))
+                }
+                Accessible.name: qsTr("Toggle OpenSSH transfer backend")
+            }
         }
     }
 
