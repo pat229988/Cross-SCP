@@ -8,6 +8,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QProcessEnvironment>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QTextStream>
 
@@ -411,18 +412,34 @@ void TransferQueueModel::consumeProgressOutput() {
     return;
   }
   progressBuffer_.append(currentProcess_->readAllStandardError());
-  int newline = progressBuffer_.indexOf('\n');
-  while (newline >= 0) {
-    const QByteArray lineBytes = progressBuffer_.left(newline).trimmed();
-    progressBuffer_.remove(0, newline + 1);
+  auto nextSeparator = [this]() -> int {
+    const int newline = progressBuffer_.indexOf('\n');
+    const int carriageReturn = progressBuffer_.indexOf('\r');
+    if (newline < 0) {
+      return carriageReturn;
+    }
+    if (carriageReturn < 0) {
+      return newline;
+    }
+    return qMin(newline, carriageReturn);
+  };
+
+  int separator = nextSeparator();
+  while (separator >= 0) {
+    const QByteArray lineBytes = progressBuffer_.left(separator).trimmed();
+    progressBuffer_.remove(0, separator + 1);
     const QString line = QString::fromUtf8(lineBytes);
     if (line.startsWith(QStringLiteral("progress\t"))) {
       processProgressLine(line);
+    } else if (currentRow_ >= 0 && currentRow_ < jobs_.size() &&
+               jobs_.at(currentRow_).usesOpenSsh &&
+               processOpenSshProgressLine(line)) {
+      // Parsed OpenSSH scp's human progress line; do not treat it as an error.
     } else if (!line.isEmpty()) {
       errorOutput_.append(lineBytes);
       errorOutput_.append('\n');
     }
-    newline = progressBuffer_.indexOf('\n');
+    separator = nextSeparator();
   }
 }
 
@@ -460,6 +477,92 @@ void TransferQueueModel::processProgressLine(const QString &line) {
   updateRow(currentRow_);
 }
 
+bool TransferQueueModel::processOpenSshProgressLine(const QString &line) {
+  if (currentRow_ < 0 || currentRow_ >= jobs_.size()) {
+    return false;
+  }
+  const QString trimmed = line.trimmed();
+  if (trimmed.isEmpty()) {
+    return false;
+  }
+
+  static const QRegularExpression progressPattern(
+      QStringLiteral(R"((\d{1,3})%\s+([0-9]+(?:\.[0-9]+)?)([KMGTPE]?i?B)\s+([0-9]+(?:\.[0-9]+)?)([KMGTPE]?i?B)/s)"),
+      QRegularExpression::CaseInsensitiveOption);
+  const QRegularExpressionMatch match = progressPattern.match(trimmed);
+  if (!match.hasMatch()) {
+    return false;
+  }
+
+  bool okPercent = false;
+  const int percent = qBound(0, match.captured(1).toInt(&okPercent), 100);
+  if (!okPercent) {
+    return false;
+  }
+
+  const qlonglong transferredBytes = parseOpenSshByteAmount(match.captured(2), match.captured(3));
+  const qlonglong speedBytesPerSecond = parseOpenSshSpeed(match.captured(4), match.captured(5));
+
+  Job &job = jobs_[currentRow_];
+  job.progress = percent;
+  if (transferredBytes > 0) {
+    job.bytesDone = transferredBytes;
+  } else if (job.bytesTotal > 0) {
+    job.bytesDone = static_cast<qlonglong>((job.bytesTotal * percent) / 100.0);
+  }
+  if (job.bytesTotal <= 0 && percent > 0 && job.bytesDone > 0) {
+    job.bytesTotal = static_cast<qlonglong>((job.bytesDone * 100.0) / percent);
+  }
+  if (percent == 100 && job.bytesTotal < job.bytesDone) {
+    job.bytesTotal = job.bytesDone;
+  }
+  if (speedBytesPerSecond > 0) {
+    job.speedBytesPerSecond = speedBytesPerSecond;
+  }
+
+  if (job.bytesTotal > 0) {
+    job.state = QStringLiteral("Running %1% (%2 / %3)")
+                    .arg(job.progress)
+                    .arg(formatBytes(job.bytesDone), formatBytes(job.bytesTotal));
+  } else if (job.bytesDone > 0) {
+    job.state = QStringLiteral("Running %1% (%2)")
+                    .arg(job.progress)
+                    .arg(formatBytes(job.bytesDone));
+  } else {
+    job.state = QStringLiteral("Running %1% with OpenSSH fast path").arg(job.progress);
+  }
+  updateRow(currentRow_);
+  return true;
+}
+
+qlonglong TransferQueueModel::parseOpenSshByteAmount(const QString &value,
+                                                     const QString &unit) const {
+  bool ok = false;
+  const double amount = value.toDouble(&ok);
+  if (!ok || amount < 0) {
+    return 0;
+  }
+  const QString normalized = unit.trimmed().toUpper();
+  double multiplier = 1.0;
+  if (normalized == QStringLiteral("KB") || normalized == QStringLiteral("KIB")) {
+    multiplier = 1024.0;
+  } else if (normalized == QStringLiteral("MB") || normalized == QStringLiteral("MIB")) {
+    multiplier = 1024.0 * 1024.0;
+  } else if (normalized == QStringLiteral("GB") || normalized == QStringLiteral("GIB")) {
+    multiplier = 1024.0 * 1024.0 * 1024.0;
+  } else if (normalized == QStringLiteral("TB") || normalized == QStringLiteral("TIB")) {
+    multiplier = 1024.0 * 1024.0 * 1024.0 * 1024.0;
+  } else if (normalized == QStringLiteral("PB") || normalized == QStringLiteral("PIB")) {
+    multiplier = 1024.0 * 1024.0 * 1024.0 * 1024.0 * 1024.0;
+  }
+  return static_cast<qlonglong>(amount * multiplier);
+}
+
+qlonglong TransferQueueModel::parseOpenSshSpeed(const QString &value,
+                                                const QString &unit) const {
+  return parseOpenSshByteAmount(value, unit);
+}
+
 void TransferQueueModel::finishCurrentProcess(int exitCode,
                                               QProcess::ExitStatus exitStatus) {
   if (currentProcess_ == nullptr) {
@@ -470,6 +573,10 @@ void TransferQueueModel::finishCurrentProcess(int exitCode,
     const QString line = QString::fromUtf8(progressBuffer_.trimmed());
     if (line.startsWith(QStringLiteral("progress\t"))) {
       processProgressLine(line);
+    } else if (currentRow_ >= 0 && currentRow_ < jobs_.size() &&
+               jobs_.at(currentRow_).usesOpenSsh &&
+               processOpenSshProgressLine(line)) {
+      // Parsed trailing OpenSSH progress without a final newline/carriage return.
     } else {
       errorOutput_.append(progressBuffer_.trimmed());
       errorOutput_.append('\n');

@@ -119,6 +119,9 @@ private:
   void startCurrentProcess();
   void consumeProgressOutput();
   void processProgressLine(const QString &line);
+  bool processOpenSshProgressLine(const QString &line);
+  qlonglong parseOpenSshByteAmount(const QString &value, const QString &unit) const;
+  qlonglong parseOpenSshSpeed(const QString &value, const QString &unit) const;
   void finishCurrentProcess(int exitCode, QProcess::ExitStatus exitStatus);
   void failCurrentProcess(const QString &error);
   void updateRow(int row);
