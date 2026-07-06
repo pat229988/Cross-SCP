@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Wired protocol-neutral CLI commands and GUI remote pane/queue flows for FTP/FTPS.
   - FTPS uses certificate verification through the native TLS backend by default.
 
+### Changed
+
+- **SFTP Transfer Performance**
+  - Tuned the Rust `ssh2` SFTP progress copy path to use an 8 MiB streaming buffer.
+  - Throttled SFTP progress callbacks to reduce CLI/GUI progress-event overhead while still reporting completion.
+
 ## [1.0.1] - 2026-05-20
 
 ### Added
