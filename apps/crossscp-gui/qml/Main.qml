@@ -30,6 +30,8 @@ ApplicationWindow {
     property var scannedSshKeys: []
     property var selectedLocalItems: []
     property var selectedRemoteItems: []
+    property var pendingUploads: []
+    property var conflictingUploadPaths: []
     property bool logsNeedHorizontalScroll: false
     property string activeHost: ""
     property string activeProtocol: "sftp"
@@ -157,6 +159,13 @@ ApplicationWindow {
         if (target.endsWith("/")) {
             return joinRemotePath(target, localName)
         }
+        if (target === "~" || target.startsWith("~/")) {
+            return target
+        }
+        var current = currentRemotePath && currentRemotePath.length > 0 ? currentRemotePath.replace(/\/$/, "") : "/"
+        if (current !== "/" && (target === current || target.startsWith(current + "/"))) {
+            return target
+        }
         if (!target.startsWith("/")) {
             return joinRemotePath(currentRemotePath, target)
         }
@@ -183,11 +192,16 @@ ApplicationWindow {
     }
 
     function prepareUploadRemotePath(localPath) {
-        var localName = root.selectedLocalName.length > 0 ? root.selectedLocalName : root.fileNameFromPath(localPath)
+        var usesSelectedPath = localPath === root.selectedLocalPath
+        var localName = usesSelectedPath && root.selectedLocalName.length > 0 ? root.selectedLocalName : root.fileNameFromPath(localPath)
+        var localIsDirectory = usesSelectedPath ? root.selectedLocalIsDirectory : leftModel.isDirectoryPath(localPath)
         if (root.transferRemotePath.length > 0 && root.transferRemotePath !== root.selectedRemotePath) {
             return root.normalizeUploadRemotePath(root.transferRemotePath, remoteModel.path, localName)
         }
         if (root.selectedRemoteIsDirectory && root.selectedRemotePath.length > 0) {
+            if (localIsDirectory && root.selectedRemoteName === localName) {
+                return root.selectedRemotePath
+            }
             return root.joinRemotePath(root.selectedRemotePath, localName)
         }
         return root.joinRemotePath(remoteModel.path, localName)
@@ -244,37 +258,76 @@ ApplicationWindow {
         return "ssh -N -L " + local + ":" + tunnelLocalPortField.value + ":" + siteHostField.text.trim() + ":" + sitePortField.value + " -J " + root.proxyJumpChain() + " -p " + finalSshPortField.value + " " + finalUser + finalHost
     }
 
+    function buildPendingUploads() {
+        var uploads = []
+        if (selectedLocalItems.length > 0) {
+            var baseRemotePath = selectedRemoteIsDirectory && selectedRemotePath.length > 0 ? selectedRemotePath : remoteModel.path
+            for (var i = 0; i < selectedLocalItems.length; i++) {
+                var item = selectedLocalItems[i]
+                var destination = item.isDirectory && selectedRemoteIsDirectory && selectedRemoteName === item.name
+                                  ? selectedRemotePath
+                                  : joinRemotePath(baseRemotePath, item.name)
+                uploads.push({ source: item.path, destination: destination })
+            }
+            return uploads
+        }
+        var localPath = root.transferLocalPath.length > 0 ? root.transferLocalPath : root.selectedLocalPath
+        if (localPath.length === 0) {
+            return uploads
+        }
+        uploads.push({ source: localPath, destination: root.prepareUploadRemotePath(localPath) })
+        return uploads
+    }
+
+    function queuePendingUploads(conflictPolicy) {
+        var uploads = root.pendingUploads
+        var queuedUploads = 0
+        for (var i = 0; i < uploads.length; i++) {
+            var upload = uploads[i]
+            if (queueModel.enqueueRemoteUpload(activeProtocol, activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, upload.source, upload.destination, conflictPolicy)) {
+                queuedUploads++
+                addLog(qsTr("Queued upload %1 → %2").arg(upload.source).arg(upload.destination))
+            } else {
+                addLog(qsTr("Upload queue failed: %1").arg(upload.source))
+            }
+        }
+        if (uploads.length === 1) {
+            root.transferRemotePath = uploads[0].destination
+        }
+        statusText = qsTr("Queued %1 of %2 uploads").arg(queuedUploads).arg(uploads.length)
+        root.pendingUploads = []
+        root.conflictingUploadPaths = []
+    }
+
     function performUpload() {
         if (!remoteModel.connected) {
             statusText = qsTr("Connect to a remote session before uploading")
             return
         }
-        if (selectedLocalItems.length > 0) {
-            var queuedUploads = 0
-            var baseRemotePath = selectedRemoteIsDirectory && selectedRemotePath.length > 0 ? selectedRemotePath : remoteModel.path
-            for (var i = 0; i < selectedLocalItems.length; i++) {
-                var item = selectedLocalItems[i]
-                var destination = joinRemotePath(baseRemotePath, item.name)
-                if (queueModel.enqueueRemoteUpload(activeProtocol, activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, item.path, destination)) {
-                    queuedUploads++
-                    addLog(qsTr("Queued upload %1 → %2").arg(item.path).arg(destination))
-                } else {
-                    addLog(qsTr("Upload queue failed: %1").arg(item.path))
-                }
-            }
-            statusText = qsTr("Queued %1 of %2 selected uploads").arg(queuedUploads).arg(selectedLocalItems.length)
-            return
-        }
-        var localPath = root.transferLocalPath.length > 0 ? root.transferLocalPath : root.selectedLocalPath
-        if (localPath.length === 0) {
+        var uploads = root.buildPendingUploads()
+        if (uploads.length === 0) {
             statusText = qsTr("Select a local file or folder before uploading")
             return
         }
-        var remotePath = root.prepareUploadRemotePath(localPath)
-        if (queueModel.enqueueRemoteUpload(activeProtocol, activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, localPath, remotePath)) {
-            root.transferRemotePath = remotePath
-            statusText = qsTr("Queued upload %1").arg(localPath)
-            addLog(qsTr("Queued upload %1 → %2").arg(localPath).arg(remotePath))
+        var conflicts = []
+        for (var i = 0; i < uploads.length; i++) {
+            var entryStatus = remoteModel.entryStatus(uploads[i].destination)
+            if (entryStatus < 0) {
+                statusText = qsTr("Could not check whether %1 already exists: %2").arg(uploads[i].destination).arg(remoteModel.error)
+                root.pendingUploads = []
+                root.conflictingUploadPaths = []
+                return
+            }
+            if (entryStatus > 0) {
+                conflicts.push(uploads[i].destination)
+            }
+        }
+        root.pendingUploads = uploads
+        root.conflictingUploadPaths = conflicts
+        if (conflicts.length > 0) {
+            overwritePromptDialog.open()
+        } else {
+            root.queuePendingUploads("")
         }
     }
 
@@ -1421,17 +1474,60 @@ ApplicationWindow {
 
     Dialog {
         id: overwritePromptDialog
-        title: qsTr("Overwrite Confirmation")
+        title: qsTr("File or folder already exists")
         modal: true
-        standardButtons: Dialog.Yes | Dialog.No | Dialog.Cancel
         anchors.centerIn: parent
-        Label {
-            text: qsTr("Prompt broker UI placeholder. Real overwrite/host-key prompts will route through this pattern.")
-            wrapMode: Text.WordWrap
-            width: 360
+        width: Math.min(root.width * 0.58, 620)
+        contentItem: ColumnLayout {
+            spacing: 10
+            Label {
+                Layout.fillWidth: true
+                text: root.conflictingUploadPaths.length === 1
+                      ? qsTr("An item named %1 already exists at the destination.").arg(root.conflictingUploadPaths[0])
+                      : qsTr("%1 items already exist at the destination.").arg(root.conflictingUploadPaths.length)
+                wrapMode: Text.WrapAnywhere
+                font.bold: true
+            }
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Keep existing skips conflicting files while still merging new files into existing folders. Replace overwrites conflicting files. Keep both renames the new item by adding a number.")
+                wrapMode: Text.WordWrap
+                color: root.themeMuted
+            }
         }
-        onAccepted: statusText = qsTr("Prompt accepted")
-        onRejected: statusText = qsTr("Prompt rejected or cancelled")
+        footer: DialogButtonBox {
+            Button {
+                text: qsTr("Keep existing")
+                onClicked: {
+                    root.queuePendingUploads("keep-existing")
+                    overwritePromptDialog.accept()
+                }
+            }
+            Button {
+                text: qsTr("Replace")
+                highlighted: true
+                onClicked: {
+                    root.queuePendingUploads("replace")
+                    overwritePromptDialog.accept()
+                }
+            }
+            Button {
+                text: qsTr("Keep both")
+                onClicked: {
+                    root.queuePendingUploads("keep-both")
+                    overwritePromptDialog.accept()
+                }
+            }
+            Button {
+                text: qsTr("Cancel")
+                onClicked: overwritePromptDialog.reject()
+            }
+        }
+        onRejected: {
+            root.pendingUploads = []
+            root.conflictingUploadPaths = []
+            root.statusText = qsTr("Upload cancelled")
+        }
     }
 
     Dialog {

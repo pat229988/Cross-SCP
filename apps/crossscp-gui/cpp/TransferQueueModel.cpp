@@ -100,7 +100,7 @@ bool TransferQueueModel::enqueueSftpUpload(
     const QString &source, const QString &destination) {
   return enqueueRemoteTransfer(QStringLiteral("Upload"), QStringLiteral("sftp"), host,
                                port, username, password, privateKeyPath,
-                               privateKeyPassphrase, source, destination);
+                               privateKeyPassphrase, source, destination, QString());
 }
 
 bool TransferQueueModel::enqueueSftpDownload(
@@ -109,17 +109,17 @@ bool TransferQueueModel::enqueueSftpDownload(
     const QString &source, const QString &destination) {
   return enqueueRemoteTransfer(QStringLiteral("Download"), QStringLiteral("sftp"), host,
                                port, username, password, privateKeyPath,
-                               privateKeyPassphrase, source, destination);
+                               privateKeyPassphrase, source, destination, QString());
 }
 
 bool TransferQueueModel::enqueueRemoteUpload(
     const QString &protocol, const QString &host, int port, const QString &username,
     const QString &password, const QString &privateKeyPath,
     const QString &privateKeyPassphrase, const QString &source,
-    const QString &destination) {
+    const QString &destination, const QString &conflictPolicy) {
   return enqueueRemoteTransfer(QStringLiteral("Upload"), protocol, host, port, username,
                                password, privateKeyPath, privateKeyPassphrase, source,
-                               destination);
+                               destination, conflictPolicy);
 }
 
 bool TransferQueueModel::enqueueRemoteDownload(
@@ -129,7 +129,7 @@ bool TransferQueueModel::enqueueRemoteDownload(
     const QString &destination) {
   return enqueueRemoteTransfer(QStringLiteral("Download"), protocol, host, port,
                                username, password, privateKeyPath,
-                               privateKeyPassphrase, source, destination);
+                               privateKeyPassphrase, source, destination, QString());
 }
 
 bool TransferQueueModel::enqueueSftpTransfer(
@@ -139,14 +139,14 @@ bool TransferQueueModel::enqueueSftpTransfer(
     const QString &destination) {
   return enqueueRemoteTransfer(direction, QStringLiteral("sftp"), host, port, username,
                                password, privateKeyPath, privateKeyPassphrase, source,
-                               destination);
+                               destination, QString());
 }
 
 bool TransferQueueModel::enqueueRemoteTransfer(
     const QString &direction, const QString &protocol, const QString &host, int port,
     const QString &username, const QString &password, const QString &privateKeyPath,
     const QString &privateKeyPassphrase, const QString &source,
-    const QString &destination) {
+    const QString &destination, const QString &conflictPolicy) {
   if (backend_ == nullptr) {
     return false;
   }
@@ -158,9 +158,21 @@ bool TransferQueueModel::enqueueRemoteTransfer(
   }
 
   const bool upload = direction == QStringLiteral("Upload");
+  const QString normalizedConflictPolicy = conflictPolicy.trimmed().toLower();
+  if (upload && !normalizedConflictPolicy.isEmpty() &&
+      normalizedConflictPolicy != QStringLiteral("keep-existing") &&
+      normalizedConflictPolicy != QStringLiteral("replace") &&
+      normalizedConflictPolicy != QStringLiteral("keep-both")) {
+    return false;
+  }
+  const QFileInfo sourceInfo(source.trimmed());
+  const bool requiresNativeUpload =
+      upload && (!normalizedConflictPolicy.isEmpty() ||
+                 (normalizedProtocol == QStringLiteral("sftp") && sourceInfo.isDir()));
   const bool useOpenSsh = useOpenSshBackend_ &&
                           (normalizedProtocol == QStringLiteral("sftp") ||
-                           normalizedProtocol == QStringLiteral("scp"));
+                           normalizedProtocol == QStringLiteral("scp")) &&
+                          !requiresNativeUpload;
   QString program;
   QStringList arguments;
   if (useOpenSsh) {
@@ -184,6 +196,10 @@ bool TransferQueueModel::enqueueRemoteTransfer(
                  source.trimmed(),
                  upload ? QStringLiteral("--remote") : QStringLiteral("--local"),
                  destination.trimmed()};
+    if (upload && !normalizedConflictPolicy.isEmpty()) {
+      arguments.append(QStringLiteral("--conflict"));
+      arguments.append(normalizedConflictPolicy);
+    }
   }
 
   const int row = jobs_.size();
@@ -201,7 +217,6 @@ bool TransferQueueModel::enqueueRemoteTransfer(
   job.privateKeyPassphrase = privateKeyPassphrase;
   job.usesOpenSsh = useOpenSsh;
   if (upload) {
-    const QFileInfo sourceInfo(job.source);
     if (sourceInfo.isFile()) {
       job.bytesTotal = sourceInfo.size();
     }
@@ -591,6 +606,16 @@ void TransferQueueModel::finishCurrentProcess(int exitCode,
   if (row >= 0 && row < jobs_.size()) {
     Job &job = jobs_[row];
     if (exitStatus == QProcess::NormalExit && exitCode == 0) {
+      if (!job.usesOpenSsh) {
+        const QStringList outputLines =
+            QString::fromUtf8(standardOutput_).split('\n', Qt::SkipEmptyParts);
+        for (const QString &line : outputLines) {
+          const QStringList fields = line.split('\t');
+          if (fields.size() >= 4 && fields[0] == QStringLiteral("completed")) {
+            job.destination = fields[2];
+          }
+        }
+      }
       job.progress = 100;
       if (job.bytesTotal > 0 && job.bytesDone < job.bytesTotal) {
         job.bytesDone = job.bytesTotal;

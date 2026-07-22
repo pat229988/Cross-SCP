@@ -193,6 +193,54 @@ pub enum RemoteOperation {
     Capabilities,
 }
 
+/// Action to take when an upload target already exists.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum FileConflictPolicy {
+    /// Keep the destination item and skip the conflicting source file.
+    KeepExisting,
+    /// Replace conflicting files and merge matching directories.
+    #[default]
+    Replace,
+    /// Keep both items by adding an incrementing number to the new name.
+    KeepBoth,
+}
+
+/// Return a numbered sibling path used by [`FileConflictPolicy::KeepBoth`].
+///
+/// File extensions are preserved (`report (1).pdf`) while directory names are
+/// suffixed directly (`photos (1)`).
+#[must_use]
+pub fn numbered_conflict_path(path: &str, copy_number: u32, is_directory: bool) -> String {
+    let copy_number = copy_number.max(1);
+    let normalized_path = if path == "/" {
+        path
+    } else {
+        path.trim_end_matches('/')
+    };
+    let (parent, name) = normalized_path
+        .rsplit_once('/')
+        .map_or(("", normalized_path), |(parent, name)| (parent, name));
+    let numbered_name = if is_directory {
+        format!("{name} ({copy_number})")
+    } else if let Some((stem, extension)) =
+        name.rsplit_once('.').filter(|(stem, _)| !stem.is_empty())
+    {
+        format!("{stem} ({copy_number}).{extension}")
+    } else {
+        format!("{name} ({copy_number})")
+    };
+
+    if parent.is_empty() {
+        if normalized_path.starts_with('/') {
+            format!("/{numbered_name}")
+        } else {
+            numbered_name
+        }
+    } else {
+        format!("{parent}/{numbered_name}")
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RemoteListRequest {
     pub path: String,
@@ -323,4 +371,37 @@ pub trait RemoteFileSystem {
     fn remove(&self, path: &str, options: RemoveOptions) -> Result<(), Self::Error>;
     fn rename(&self, from: &str, to: &str, options: RenameOptions) -> Result<(), Self::Error>;
     fn capabilities(&self) -> ProtocolCapabilities;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::numbered_conflict_path;
+
+    #[test]
+    fn numbered_conflict_paths_preserve_file_extensions() {
+        assert_eq!(
+            numbered_conflict_path("/uploads/report.pdf", 1, false),
+            "/uploads/report (1).pdf"
+        );
+        assert_eq!(
+            numbered_conflict_path("/uploads/archive.tar.gz", 2, false),
+            "/uploads/archive.tar (2).gz"
+        );
+        assert_eq!(
+            numbered_conflict_path("/uploads/.env", 1, false),
+            "/uploads/.env (1)"
+        );
+    }
+
+    #[test]
+    fn numbered_conflict_paths_suffix_directories() {
+        assert_eq!(
+            numbered_conflict_path("/uploads/photos", 3, true),
+            "/uploads/photos (3)"
+        );
+        assert_eq!(
+            numbered_conflict_path("/uploads/photos/", 1, true),
+            "/uploads/photos (1)"
+        );
+    }
 }

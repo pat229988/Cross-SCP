@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Upload Conflict Handling**
+  - Added Keep existing, Replace, and Keep both choices for SFTP and FTP/FTPS uploads.
+  - Keep both preserves file extensions and appends an incrementing number to the new name.
+  - Existing destination folders are merged so only conflicting files follow the selected policy.
+
 - **SCP Transfer Support**
   - Added live SCP upload/download support using `ssh2`/libssh2.
   - Wired SCP into protocol-neutral CLI transfer commands and GUI transfer-only connection flow.
@@ -24,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SFTP Transfer Performance**
   - Tuned the Rust `ssh2` SFTP progress copy path to use an 8 MiB streaming buffer.
   - Throttled SFTP progress callbacks to reduce CLI/GUI progress-event overhead while still reporting completion.
+
+### Fixed
+
+- Prevented repeated uploads of the same folder from creating a nested duplicate folder.
 
 ## [1.0.1] - 2026-05-20
 

@@ -173,6 +173,38 @@ void RemoteFileModel::refresh() {
   setError(QString());
 }
 
+int RemoteFileModel::entryStatus(const QString &remotePath) {
+  if (protocol_ == QStringLiteral("scp")) {
+    return 0;
+  }
+  if (backend_ == nullptr || host_.isEmpty() || username_.isEmpty()) {
+    setError(QStringLiteral("Remote connection details are required for conflict checking"));
+    return -1;
+  }
+  const QString target = QDir::cleanPath(remotePath.trimmed());
+  const int separator = target.lastIndexOf(QLatin1Char('/'));
+  const QString parentPath = separator <= 0 ? QStringLiteral("/") : target.left(separator);
+  const QString targetName = separator < 0 ? target : target.mid(separator + 1);
+  const CommandResult result = backend_->runCommand(
+      {QStringLiteral("remote-list"), QStringLiteral("--protocol"), protocol_,
+       QStringLiteral("--host"), host_, QStringLiteral("--port"), QString::number(port_),
+       QStringLiteral("--username"), username_, QStringLiteral("--path"), parentPath},
+      password_, privateKeyPath_, privateKeyPassphrase_);
+  if (result.exitCode != 0) {
+    setError(result.standardError.trimmed());
+    return -1;
+  }
+  setError(QString());
+  const QStringList lines = result.standardOutput.split('\n', Qt::SkipEmptyParts);
+  for (const QString &line : lines) {
+    const QStringList fields = line.split('\t');
+    if (fields.size() >= 4 && fields[3] == targetName) {
+      return 1;
+    }
+  }
+  return 0;
+}
+
 void RemoteFileModel::openRow(int row) {
   if (row < 0 || row >= entries_.size() || !entries_.at(row).isDirectory) {
     return;

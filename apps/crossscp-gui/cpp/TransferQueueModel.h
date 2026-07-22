@@ -55,7 +55,8 @@ public:
                                        const QString &privateKeyPath,
                                        const QString &privateKeyPassphrase,
                                        const QString &source,
-                                       const QString &destination);
+                                       const QString &destination,
+                                       const QString &conflictPolicy);
   Q_INVOKABLE bool enqueueRemoteDownload(const QString &protocol, const QString &host,
                                          int port, const QString &username,
                                          const QString &password,
@@ -103,9 +104,10 @@ private:
   bool enqueueRemoteTransfer(const QString &direction, const QString &protocol,
                               const QString &host, int port,
                               const QString &username, const QString &password,
-                              const QString &privateKeyPath,
-                              const QString &privateKeyPassphrase,
-                              const QString &source, const QString &destination);
+                               const QString &privateKeyPath,
+                               const QString &privateKeyPassphrase,
+                               const QString &source, const QString &destination,
+                               const QString &conflictPolicy);
   QStringList openSshScpArguments(bool upload, const QString &host, int port,
                                   const QString &username,
                                   const QString &privateKeyPath,

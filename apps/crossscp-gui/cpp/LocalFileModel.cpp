@@ -154,6 +154,10 @@ bool LocalFileModel::deletePath(const QString &path) {
   return true;
 }
 
+bool LocalFileModel::isDirectoryPath(const QString &path) const {
+  return QFileInfo(path.trimmed()).isDir();
+}
+
 QString LocalFileModel::homePath() const {
   const QString home = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
   return home.isEmpty() ? QDir::homePath() : home;
