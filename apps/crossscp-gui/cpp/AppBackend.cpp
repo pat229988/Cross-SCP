@@ -7,6 +7,8 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QStandardPaths>
@@ -19,6 +21,7 @@ AppBackend::AppBackend(QObject *parent) : QObject(parent) {
       QStandardPaths::AppConfigLocation);
   QDir().mkpath(configRoot);
   sessionsPath_ = QDir(configRoot).filePath("sessions.tsv");
+  fullSessionsPath_ = QDir(configRoot).filePath("site-profiles.jsonl");
   setStatus(QStringLiteral("Rust CLI bridge ready: %1").arg(resolveCliPath()));
 }
 
@@ -39,13 +42,83 @@ bool AppBackend::systemDarkMode() const {
 QString AppBackend::cliPath() const { return resolveCliPath(); }
 
 QStringList AppBackend::listSites() {
+  QStringList profiles;
+  QFile fullProfiles(fullSessionsPath_);
+  if (fullProfiles.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    while (!fullProfiles.atEnd()) {
+      const QString line = QString::fromUtf8(fullProfiles.readLine()).trimmed();
+      if (!line.isEmpty()) {
+        profiles.append(line);
+      }
+    }
+  }
+
   const CommandResult result = runCommand({QStringLiteral("session-list"), sessionsPath_});
   if (result.exitCode != 0) {
     setStatus(QStringLiteral("Session load failed: %1").arg(result.standardError.trimmed()));
-    return {};
+    return profiles;
   }
-  setStatus(QStringLiteral("Loaded saved sites from Rust session store"));
-  return result.standardOutput.split('\n', Qt::SkipEmptyParts);
+  const QStringList legacy = result.standardOutput.split('\n', Qt::SkipEmptyParts);
+  for (const QString &line : legacy) {
+    const QStringList fields = line.split('\t');
+    const QString legacyName = fields.value(0).trimmed();
+    bool duplicate = false;
+    for (const QString &profile : profiles) {
+      const QJsonDocument document = QJsonDocument::fromJson(profile.toUtf8());
+      if (document.isObject() && document.object().value(QStringLiteral("name")).toString() == legacyName) {
+        duplicate = true;
+        break;
+      }
+    }
+    if (!duplicate) {
+      profiles.append(line);
+    }
+  }
+  setStatus(QStringLiteral("Loaded saved site profiles"));
+  return profiles;
+}
+
+bool AppBackend::saveSiteConfiguration(const QString &configurationJson) {
+  const QJsonDocument document = QJsonDocument::fromJson(configurationJson.toUtf8());
+  if (!document.isObject()) {
+    setStatus(QStringLiteral("Save failed: invalid site profile JSON"));
+    return false;
+  }
+  const QJsonObject object = document.object();
+  const QString name = object.value(QStringLiteral("name")).toString().trimmed();
+  if (name.isEmpty()) {
+    setStatus(QStringLiteral("Site name is required"));
+    return false;
+  }
+
+  QStringList profiles;
+  QFile input(fullSessionsPath_);
+  if (input.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    while (!input.atEnd()) {
+      const QString line = QString::fromUtf8(input.readLine()).trimmed();
+      if (line.isEmpty()) {
+        continue;
+      }
+      const QJsonDocument existing = QJsonDocument::fromJson(line.toUtf8());
+      if (existing.isObject() && existing.object().value(QStringLiteral("name")).toString() == name) {
+        continue;
+      }
+      profiles.append(line);
+    }
+  }
+  profiles.append(QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact)));
+
+  QFile output(fullSessionsPath_);
+  if (!output.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+    setStatus(QStringLiteral("Save failed: unable to write site profile store"));
+    return false;
+  }
+  QTextStream stream(&output);
+  for (const QString &profile : profiles) {
+    stream << profile << '\n';
+  }
+  setStatus(QStringLiteral("Saved full profile '%1' (secret fields are not stored)").arg(name));
+  return true;
 }
 
 bool AppBackend::saveSite(const QString &protocol, const QString &name, const QString &host, int port,
@@ -72,8 +145,37 @@ bool AppBackend::deleteSite(const QString &name) {
     setStatus(QStringLiteral("Select a site to delete"));
     return false;
   }
+  bool removedFullProfile = false;
+  QStringList profiles;
+  QFile input(fullSessionsPath_);
+  if (input.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    while (!input.atEnd()) {
+      const QString line = QString::fromUtf8(input.readLine()).trimmed();
+      if (line.isEmpty()) {
+        continue;
+      }
+      const QJsonDocument existing = QJsonDocument::fromJson(line.toUtf8());
+      if (existing.isObject() && existing.object().value(QStringLiteral("name")).toString() == name.trimmed()) {
+        removedFullProfile = true;
+        continue;
+      }
+      profiles.append(line);
+    }
+    QFile output(fullSessionsPath_);
+    if (output.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+      QTextStream stream(&output);
+      for (const QString &profile : profiles) {
+        stream << profile << '\n';
+      }
+    }
+  }
+
   const CommandResult result = runCommand({QStringLiteral("session-delete"), sessionsPath_, name});
   if (result.exitCode != 0) {
+    if (removedFullProfile) {
+      setStatus(QStringLiteral("Deleted full profile '%1'").arg(name));
+      return true;
+    }
     setStatus(QStringLiteral("Delete failed: %1").arg(result.standardError.trimmed()));
     return false;
   }

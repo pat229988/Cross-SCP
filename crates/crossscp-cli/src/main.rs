@@ -3,7 +3,7 @@
 //! Initial CrossSCP CLI scaffold and GUI service bridge.
 
 use crossscp_config::{FileSessionStore, SessionStore};
-use crossscp_core::{MaskDecision, MaskSet, SessionProfile, SessionProtocol};
+use crossscp_core::{FileConflictPolicy, MaskDecision, MaskSet, SessionProfile, SessionProtocol};
 use crossscp_core::{ProtocolCapabilities, RemoteFileSystem};
 use crossscp_protocol_ftp::{
     resolve_ftp_credentials, FtpAdapter, FtpConnectionConfig, FtpError, FtpsMode,
@@ -40,8 +40,18 @@ fn main() {
         Some("session-save") => run_session_save(args.collect()),
         Some("session-delete") => run_session_delete(args.collect()),
         Some("sftp-list") => run_sftp_list(args.collect()),
-        Some("sftp-upload") => run_sftp_transfer(args.collect(), SftpTransferKind::Upload),
-        Some("sftp-download") => run_sftp_transfer(args.collect(), SftpTransferKind::Download),
+        Some("sftp-upload") => run_sftp_transfer(
+            args.collect(),
+            SftpTransferKind::Upload,
+            FileConflictPolicy::Replace,
+            false,
+        ),
+        Some("sftp-download") => run_sftp_transfer(
+            args.collect(),
+            SftpTransferKind::Download,
+            FileConflictPolicy::Replace,
+            false,
+        ),
         Some("sftp-mkdir") => run_sftp_mkdir(args.collect()),
         Some("sftp-delete") => run_sftp_delete(args.collect()),
         Some("remote-capabilities") => run_remote_capabilities(args.collect()),
@@ -81,7 +91,7 @@ fn print_help() {
     );
     println!("  crossscp remote-capabilities --protocol <sftp|scp|ftp|ftps|webdav|s3|local>");
     println!("  crossscp remote-list --protocol <sftp|ftp|ftps> --host <host> --port <port> --username <user> --path <remote-path>");
-    println!("  crossscp remote-upload --protocol <sftp|scp|ftp|ftps> --host <host> --port <port> --username <user> --local <path> --remote <path>");
+    println!("  crossscp remote-upload --protocol <sftp|scp|ftp|ftps> --host <host> --port <port> --username <user> --local <path> --remote <path> [--conflict <keep-existing|replace|keep-both>]");
     println!("  crossscp remote-download --protocol <sftp|scp|ftp|ftps> --host <host> --port <port> --username <user> --remote <path> --local <path>");
     println!("  crossscp remote-mkdir --protocol <sftp|ftp|ftps> --host <host> --port <port> --username <user> --path <remote-path>");
     println!("  crossscp remote-delete --protocol <sftp|ftp|ftps> --host <host> --port <port> --username <user> --path <remote-path>");
@@ -99,8 +109,15 @@ struct RemoteCommandArgs {
     path: Option<String>,
     local: Option<String>,
     remote: Option<String>,
+    conflict: Option<FileConflictPolicy>,
     from: Option<String>,
     to: Option<String>,
+}
+
+struct RemoteTransferSpec {
+    local: String,
+    remote: String,
+    conflict_policy: Option<FileConflictPolicy>,
 }
 
 fn parse_remote_args(args: Vec<String>) -> Result<RemoteCommandArgs, String> {
@@ -124,6 +141,7 @@ fn parse_remote_args(args: Vec<String>) -> Result<RemoteCommandArgs, String> {
             "--path" => parsed.path = Some(value),
             "--local" => parsed.local = Some(value),
             "--remote" => parsed.remote = Some(value),
+            "--conflict" => parsed.conflict = Some(parse_file_conflict_policy(&value)?),
             "--from" => parsed.from = Some(value),
             "--to" => parsed.to = Some(value),
             "--bucket" | "--region" | "--root" | "--prefix" => {}
@@ -212,6 +230,11 @@ fn run_remote_transfer(args: Vec<String>, kind: SftpTransferKind) {
     let protocol = remote_protocol(&parsed).unwrap_or_else(|message| exit_error(&message, 2));
     let (host, port, username) =
         remote_host_port_username(&parsed).unwrap_or_else(|message| exit_error(&message, 2));
+    if matches!(kind, SftpTransferKind::Download) && parsed.conflict.is_some() {
+        exit_error("--conflict is only valid for uploads", 2);
+    }
+    let requested_conflict_policy = parsed.conflict;
+    let conflict_policy = requested_conflict_policy.unwrap_or_default();
     let local = parsed
         .local
         .unwrap_or_else(|| exit_error("--local is required", 2));
@@ -220,16 +243,35 @@ fn run_remote_transfer(args: Vec<String>, kind: SftpTransferKind) {
         .unwrap_or_else(|| exit_error("--remote is required", 2));
     match protocol {
         SessionProtocol::Sftp => match kind {
-            SftpTransferKind::Upload => {
-                run_sftp_transfer(vec![host, port, username, local, remote], kind)
-            }
-            SftpTransferKind::Download => {
-                run_sftp_transfer(vec![host, port, username, remote, local], kind)
-            }
+            SftpTransferKind::Upload => run_sftp_transfer(
+                vec![host, port, username, local, remote],
+                kind,
+                conflict_policy,
+                true,
+            ),
+            SftpTransferKind::Download => run_sftp_transfer(
+                vec![host, port, username, remote, local],
+                kind,
+                conflict_policy,
+                false,
+            ),
         },
-        SessionProtocol::Ftp | SessionProtocol::Ftps => {
-            run_ftp_transfer(protocol, host, port, username, local, remote, kind)
-        }
+        SessionProtocol::Ftp | SessionProtocol::Ftps => run_ftp_transfer(
+            protocol,
+            host,
+            port,
+            username,
+            RemoteTransferSpec {
+                local,
+                remote,
+                conflict_policy: requested_conflict_policy,
+            },
+            kind,
+        ),
+        SessionProtocol::Scp if conflict_policy != FileConflictPolicy::Replace => exit_error(
+            "SCP cannot inspect remote conflicts; use SFTP for keep-existing or keep-both",
+            1,
+        ),
         SessionProtocol::Scp => run_scp_transfer(host, port, username, local, remote, kind),
         other => unsupported_live_protocol(other),
     }
@@ -390,8 +432,7 @@ fn run_ftp_transfer(
     host: String,
     port: String,
     username: String,
-    local: String,
-    remote: String,
+    transfer: RemoteTransferSpec,
     kind: SftpTransferKind,
 ) {
     let mut adapter = match connect_ftp(protocol, &host, &port, &username) {
@@ -399,8 +440,13 @@ fn run_ftp_transfer(
         Err(error) => exit_error(&format!("ftp transfer failed: {error}"), 1),
     };
     let result = match kind {
-        SftpTransferKind::Upload => adapter.upload_path(&local, &remote),
-        SftpTransferKind::Download => adapter.download_path(&remote, &local),
+        SftpTransferKind::Upload => match transfer.conflict_policy {
+            Some(conflict_policy) => {
+                adapter.upload_path_with_policy(&transfer.local, &transfer.remote, conflict_policy)
+            }
+            None => adapter.upload_path(&transfer.local, &transfer.remote),
+        },
+        SftpTransferKind::Download => adapter.download_path(&transfer.remote, &transfer.local),
     };
     match result {
         Ok(progress) => {
@@ -704,7 +750,12 @@ fn run_sftp_list(_args: Vec<String>) {
 }
 
 #[cfg(feature = "ssh2-backend")]
-fn run_sftp_transfer(args: Vec<String>, kind: SftpTransferKind) {
+fn run_sftp_transfer(
+    args: Vec<String>,
+    kind: SftpTransferKind,
+    conflict_policy: FileConflictPolicy,
+    exact_destination: bool,
+) {
     if args.len() != 5 {
         print_help();
         std::process::exit(2);
@@ -714,9 +765,18 @@ fn run_sftp_transfer(args: Vec<String>, kind: SftpTransferKind) {
         Err(error) => exit_error(&format!("sftp transfer failed: {error}"), 1),
     };
     let result = match kind {
-        SftpTransferKind::Upload => adapter.backend_mut().upload_file_with_progress(
+        SftpTransferKind::Upload if exact_destination => adapter
+            .backend_mut()
+            .upload_file_to_exact_destination_with_progress(
+                &args[3],
+                &args[4],
+                conflict_policy,
+                print_transfer_progress,
+            ),
+        SftpTransferKind::Upload => adapter.backend_mut().upload_file_with_progress_policy(
             &args[3],
             &args[4],
+            conflict_policy,
             print_transfer_progress,
         ),
         SftpTransferKind::Download => adapter.backend_mut().download_file_with_progress(
@@ -785,7 +845,12 @@ fn run_sftp_mkdir(_args: Vec<String>) {
 }
 
 #[cfg(not(feature = "ssh2-backend"))]
-fn run_sftp_transfer(_args: Vec<String>, _kind: SftpTransferKind) {
+fn run_sftp_transfer(
+    _args: Vec<String>,
+    _kind: SftpTransferKind,
+    _conflict_policy: FileConflictPolicy,
+    _exact_destination: bool,
+) {
     exit_error(
         "sftp transfer requires crossscp-cli --features ssh2-backend",
         1,
@@ -907,6 +972,15 @@ fn parse_overwrite_mode(value: &str) -> Result<OverwriteMode, String> {
     }
 }
 
+fn parse_file_conflict_policy(value: &str) -> Result<FileConflictPolicy, String> {
+    match value {
+        "keep-existing" => Ok(FileConflictPolicy::KeepExisting),
+        "replace" => Ok(FileConflictPolicy::Replace),
+        "keep-both" => Ok(FileConflictPolicy::KeepBoth),
+        _ => Err(format!("unknown file conflict policy: {value}")),
+    }
+}
+
 fn protocol_label(protocol: &SessionProtocol) -> &'static str {
     match protocol {
         SessionProtocol::Sftp => "sftp",
@@ -930,4 +1004,35 @@ fn non_empty(value: String) -> Option<String> {
 fn exit_error(message: &str, code: i32) -> ! {
     eprintln!("{message}");
     std::process::exit(code);
+}
+
+#[cfg(test)]
+mod tests {
+    use crossscp_core::FileConflictPolicy;
+
+    use super::parse_remote_args;
+
+    #[test]
+    fn remote_upload_parses_keep_both_conflict_policy() {
+        let parsed = parse_remote_args(vec![
+            "--protocol".to_string(),
+            "sftp".to_string(),
+            "--conflict".to_string(),
+            "keep-both".to_string(),
+        ])
+        .expect("remote arguments parse");
+
+        assert_eq!(parsed.conflict, Some(FileConflictPolicy::KeepBoth));
+    }
+
+    #[test]
+    fn remote_upload_rejects_unknown_conflict_policy() {
+        let error = parse_remote_args(vec![
+            "--conflict".to_string(),
+            "rename-randomly".to_string(),
+        ])
+        .expect_err("unknown policy must fail");
+
+        assert!(error.contains("unknown file conflict policy"));
+    }
 }

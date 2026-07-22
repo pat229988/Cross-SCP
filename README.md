@@ -7,6 +7,7 @@ CrossSCP is a cross-platform file transfer client built with Rust and Qt. It pro
 - Dual-pane local and remote SFTP browsing
 - Password and SSH private-key authentication
 - Upload and download files or folders
+- Resolve upload conflicts by keeping the existing file, replacing it, or keeping both with a numbered name
 - Multiple file/folder selection for batch transfers
 - Create and delete local or remote folders/files
 - Session-only transfer queue and activity logs

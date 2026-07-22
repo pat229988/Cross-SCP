@@ -21,7 +21,10 @@ concurrency:
 jobs:
   dmg:
     name: Build macOS DMG
-    runs-on: macos-latest
+    # Qt 6.7's official macOS binaries still link the legacy AGL framework,
+    # which is absent from the macOS 26/Xcode 26 SDK currently used by
+    # macos-latest. Pin to macOS 15 until the Qt toolchain is upgraded.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
       - uses: jurplel/install-qt-action@v4

@@ -8,7 +8,10 @@ use std::io::{Cursor, Write};
 use std::path::Path;
 use std::str::FromStr;
 
-use crossscp_core::{ProtocolCapabilities, RemoteFile, SessionProfile, SessionProtocol};
+use crossscp_core::{
+    numbered_conflict_path, FileConflictPolicy, ProtocolCapabilities, RemoteFile, SessionProfile,
+    SessionProtocol,
+};
 use crossscp_security::{CredentialRef, CredentialSecret, CredentialService, SecurityError};
 use suppaftp::list::File as FtpListFile;
 use suppaftp::native_tls::TlsConnector;
@@ -226,22 +229,45 @@ impl FtpAdapter {
     }
 
     pub fn list_directory(&mut self, path: &str) -> Result<Vec<RemoteFile>, FtpError> {
-        let lines = match self.session_mut()?.list(path) {
-            Ok(lines) => lines,
-            Err(_) => self.session_mut()?.list_fallback(path)?,
+        validate_ftp_path(path)?;
+        let files = match self.session_mut()?.list(path) {
+            Ok(lines) => lines
+                .into_iter()
+                .filter(|line| {
+                    let normalized = line.to_ascii_lowercase();
+                    !normalized.starts_with("type=cdir;") && !normalized.starts_with("type=pdir;")
+                })
+                .map(|line| {
+                    FtpListFile::from_mlsx_line(&line).map_err(|error| {
+                        FtpError::Backend(format!("could not parse FTP MLSD response: {error}"))
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
+            Err(_) => self
+                .session_mut()?
+                .list_fallback(path)?
+                .into_iter()
+                .map(|line| {
+                    FtpListFile::from_str(&line).map_err(|error| {
+                        FtpError::Backend(format!("could not parse FTP LIST response: {error}"))
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?,
         };
-        Ok(lines
+        Ok(files
             .into_iter()
-            .filter_map(|line| parse_list_line(path, &line))
+            .filter_map(|file| remote_file_from_listing(path, file))
             .collect())
     }
 
     pub fn create_directory(&mut self, remote_path: &str) -> Result<(), FtpError> {
+        validate_ftp_path(remote_path)?;
         self.session_mut()?.mkdir(remote_path)?;
         Ok(())
     }
 
     pub fn delete_path(&mut self, remote_path: &str) -> Result<(), FtpError> {
+        validate_ftp_path(remote_path)?;
         match self.session_mut()?.rm(remote_path) {
             Ok(()) => Ok(()),
             Err(file_error) => match self.session_mut()?.rmdir(remote_path) {
@@ -272,6 +298,8 @@ impl FtpAdapter {
     }
 
     pub fn rename(&mut self, from: &str, to: &str) -> Result<(), FtpError> {
+        validate_ftp_path(from)?;
+        validate_ftp_path(to)?;
         self.session_mut()?.rename(from, to)?;
         Ok(())
     }
@@ -281,11 +309,45 @@ impl FtpAdapter {
         local_path: &str,
         remote_path: &str,
     ) -> Result<FtpTransferSummary, FtpError> {
+        validate_ftp_path(remote_path)?;
         let local = Path::new(local_path);
         if local.is_dir() {
-            self.upload_directory(local, remote_path)
+            self.upload_directory(local, remote_path, FileConflictPolicy::Replace)
         } else {
-            self.upload_file(local, remote_path)
+            self.put_file(local, remote_path)
+        }
+    }
+
+    pub fn upload_path_with_policy(
+        &mut self,
+        local_path: &str,
+        remote_path: &str,
+        conflict_policy: FileConflictPolicy,
+    ) -> Result<FtpTransferSummary, FtpError> {
+        validate_ftp_path(remote_path)?;
+        let local = Path::new(local_path);
+        let metadata = fs::metadata(local)?;
+        let Some(destination) = self.resolve_upload_conflict_destination(
+            remote_path,
+            metadata.is_dir(),
+            conflict_policy,
+        )?
+        else {
+            return Ok(FtpTransferSummary {
+                source: local_path.to_string(),
+                destination: remote_path.to_string(),
+                bytes_done: 0,
+                bytes_total: Some(if metadata.is_file() {
+                    metadata.len()
+                } else {
+                    0
+                }),
+            });
+        };
+        if local.is_dir() {
+            self.upload_directory(local, &destination, conflict_policy)
+        } else {
+            self.upload_file(local, &destination, conflict_policy)
         }
     }
 
@@ -294,6 +356,7 @@ impl FtpAdapter {
         remote_path: &str,
         local_path: &str,
     ) -> Result<FtpTransferSummary, FtpError> {
+        validate_ftp_path(remote_path)?;
         if let Ok(entries) = self.list_directory(remote_path) {
             fs::create_dir_all(local_path)?;
             let mut summary = FtpTransferSummary::new(remote_path, local_path);
@@ -320,7 +383,36 @@ impl FtpAdapter {
         &mut self,
         local_path: &Path,
         remote_path: &str,
+        conflict_policy: FileConflictPolicy,
     ) -> Result<FtpTransferSummary, FtpError> {
+        validate_ftp_path(remote_path)?;
+        let bytes_total = fs::metadata(local_path)?.len();
+        let Some(destination) =
+            self.resolve_upload_conflict_destination(remote_path, false, conflict_policy)?
+        else {
+            return Ok(FtpTransferSummary {
+                source: local_path.to_string_lossy().to_string(),
+                destination: remote_path.to_string(),
+                bytes_done: 0,
+                bytes_total: Some(bytes_total),
+            });
+        };
+        if conflict_policy == FileConflictPolicy::Replace
+            && self
+                .remote_entry(&destination)?
+                .is_some_and(|entry| entry.is_directory)
+        {
+            self.delete_path_recursive(&destination)?;
+        }
+        self.put_file(local_path, &destination)
+    }
+
+    fn put_file(
+        &mut self,
+        local_path: &Path,
+        remote_path: &str,
+    ) -> Result<FtpTransferSummary, FtpError> {
+        validate_ftp_path(remote_path)?;
         let bytes_total = fs::metadata(local_path)?.len();
         let mut file = File::open(local_path)?;
         let bytes_done = self.session_mut()?.put_file(remote_path, &mut file)?;
@@ -336,22 +428,97 @@ impl FtpAdapter {
         &mut self,
         local_path: &Path,
         remote_path: &str,
+        conflict_policy: FileConflictPolicy,
     ) -> Result<FtpTransferSummary, FtpError> {
-        let _ = self.create_directory(remote_path);
-        let mut summary = FtpTransferSummary::new(local_path.to_string_lossy(), remote_path);
+        validate_ftp_path(remote_path)?;
+        let Some(destination) =
+            self.resolve_upload_conflict_destination(remote_path, true, conflict_policy)?
+        else {
+            return Ok(FtpTransferSummary::new(
+                local_path.to_string_lossy(),
+                remote_path,
+            ));
+        };
+        match self.remote_entry(&destination)? {
+            Some(entry) if entry.is_directory => {}
+            Some(_) if conflict_policy == FileConflictPolicy::Replace => {
+                self.delete_path(&destination)?;
+                self.create_directory(&destination)?;
+            }
+            Some(_) => {
+                return Ok(FtpTransferSummary::new(
+                    local_path.to_string_lossy(),
+                    destination,
+                ));
+            }
+            None => self.create_directory(&destination)?,
+        }
+        let mut summary = FtpTransferSummary::new(local_path.to_string_lossy(), &destination);
         for entry in fs::read_dir(local_path)? {
             let entry = entry?;
             let name = entry.file_name().to_string_lossy().to_string();
-            let child_remote = join_remote_path(remote_path, &name);
+            let child_remote = join_remote_path(&destination, &name);
             let child_summary = if entry.file_type()?.is_dir() {
-                self.upload_directory(&entry.path(), &child_remote)?
+                self.upload_directory(&entry.path(), &child_remote, conflict_policy)?
             } else {
-                self.upload_file(&entry.path(), &child_remote)?
+                self.upload_file(&entry.path(), &child_remote, conflict_policy)?
             };
             summary.bytes_done += child_summary.bytes_done;
-            summary.bytes_total = Some(summary.bytes_done);
+            summary.bytes_total = Some(
+                summary.bytes_total.unwrap_or(0)
+                    + child_summary
+                        .bytes_total
+                        .unwrap_or(child_summary.bytes_done),
+            );
         }
         Ok(summary)
+    }
+
+    fn resolve_upload_conflict_destination(
+        &mut self,
+        remote_path: &str,
+        source_is_directory: bool,
+        conflict_policy: FileConflictPolicy,
+    ) -> Result<Option<String>, FtpError> {
+        let Some(existing) = self.remote_entry(remote_path)? else {
+            return Ok(Some(remote_path.to_string()));
+        };
+
+        match conflict_policy {
+            FileConflictPolicy::Replace => Ok(Some(remote_path.to_string())),
+            FileConflictPolicy::KeepExisting if source_is_directory && existing.is_directory => {
+                Ok(Some(remote_path.to_string()))
+            }
+            FileConflictPolicy::KeepExisting => Ok(None),
+            FileConflictPolicy::KeepBoth => self
+                .next_available_remote_path(remote_path, source_is_directory)
+                .map(Some),
+        }
+    }
+
+    fn next_available_remote_path(
+        &mut self,
+        remote_path: &str,
+        is_directory: bool,
+    ) -> Result<String, FtpError> {
+        for copy_number in 1..=u32::MAX {
+            let candidate = numbered_conflict_path(remote_path, copy_number, is_directory);
+            if self.remote_entry(&candidate)?.is_none() {
+                return Ok(candidate);
+            }
+        }
+        Err(FtpError::Backend(format!(
+            "could not create a unique upload name for '{remote_path}'"
+        )))
+    }
+
+    fn remote_entry(&mut self, remote_path: &str) -> Result<Option<RemoteFile>, FtpError> {
+        validate_ftp_path(remote_path)?;
+        let (parent, name) = split_remote_parent(remote_path);
+        Ok(self
+            .list_directory(&parent)?
+            .into_iter()
+            .find(|entry| entry.name == name))
     }
 
     fn download_file(
@@ -359,6 +526,7 @@ impl FtpAdapter {
         remote_path: &str,
         local_path: &Path,
     ) -> Result<FtpTransferSummary, FtpError> {
+        validate_ftp_path(remote_path)?;
         if let Some(parent) = local_path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -399,8 +567,7 @@ impl FtpTransferSummary {
     }
 }
 
-fn parse_list_line(parent: &str, line: &str) -> Option<RemoteFile> {
-    let file = FtpListFile::from_str(line).ok()?;
+fn remote_file_from_listing(parent: &str, file: FtpListFile) -> Option<RemoteFile> {
     let name = file.name().to_string();
     if name == "." || name == ".." {
         return None;
@@ -431,6 +598,22 @@ pub fn join_remote_path(base: &str, name: &str) -> String {
     }
 }
 
+fn split_remote_parent(path: &str) -> (String, String) {
+    let trimmed = path.trim().trim_end_matches('/');
+    match trimmed.rsplit_once('/') {
+        Some(("", name)) => ("/".to_string(), name.to_string()),
+        Some((parent, name)) => (parent.to_string(), name.to_string()),
+        None => ("/".to_string(), trimmed.to_string()),
+    }
+}
+
+fn validate_ftp_path(path: &str) -> Result<(), FtpError> {
+    if path.chars().any(char::is_control) {
+        return Err(FtpError::InvalidRemotePath(path.to_string()));
+    }
+    Ok(())
+}
+
 #[derive(Debug)]
 pub enum FtpError {
     InvalidProtocol(SessionProtocol),
@@ -439,6 +622,7 @@ pub enum FtpError {
     MissingCredentialRef,
     CredentialNotFound(String),
     UnsupportedAuthMethod(String),
+    InvalidRemotePath(String),
     AuthenticationFailed,
     NotConnected,
     Security(SecurityError),
@@ -464,6 +648,9 @@ impl fmt::Display for FtpError {
             }
             Self::UnsupportedAuthMethod(message) => {
                 write!(formatter, "unsupported FTP/FTPS auth method: {message}")
+            }
+            Self::InvalidRemotePath(_) => {
+                formatter.write_str("FTP/FTPS remote paths cannot contain control characters")
             }
             Self::AuthenticationFailed => formatter.write_str("FTP/FTPS authentication failed"),
             Self::NotConnected => formatter.write_str("FTP/FTPS backend is not connected"),
@@ -560,6 +747,38 @@ mod tests {
         assert_eq!(join_remote_path("/", "file.txt"), "/file.txt");
         assert_eq!(join_remote_path("/pub", "file.txt"), "/pub/file.txt");
         assert_eq!(join_remote_path("/pub/", "file.txt"), "/pub/file.txt");
+    }
+
+    #[test]
+    fn converts_machine_readable_ftp_listing_entries() {
+        let listing =
+            FtpListFile::from_mlsx_line("type=file;size=8192;modify=20181105163248; report.txt")
+                .expect("MLSD listing parses");
+        let file = remote_file_from_listing("/uploads", listing).expect("remote file");
+
+        assert_eq!(file.path, "/uploads/report.txt");
+        assert_eq!(file.size, Some(8192));
+        assert!(!file.is_directory);
+    }
+
+    #[test]
+    fn splits_remote_parent_paths_for_conflict_checks() {
+        assert_eq!(
+            split_remote_parent("/uploads/report.txt"),
+            ("/uploads".to_string(), "report.txt".to_string())
+        );
+        assert_eq!(
+            split_remote_parent("/report.txt"),
+            ("/".to_string(), "report.txt".to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_control_characters_in_ftp_paths() {
+        assert!(matches!(
+            validate_ftp_path("/uploads/report.txt\r\nDELE /victim"),
+            Err(FtpError::InvalidRemotePath(_))
+        ));
     }
 
     fn sample_profile(protocol: SessionProtocol) -> SessionProfile {

@@ -35,6 +35,8 @@ public:
                               const QString &privateKeyPassphrase,
                               const QString &remotePath);
   Q_INVOKABLE void refresh();
+  // Returns 1 when present, 0 when absent, and -1 when the check fails.
+  Q_INVOKABLE int entryStatus(const QString &remotePath);
   Q_INVOKABLE void openRow(int row);
   Q_INVOKABLE void goUp();
   Q_INVOKABLE void disconnect();

@@ -30,6 +30,8 @@ ApplicationWindow {
     property var scannedSshKeys: []
     property var selectedLocalItems: []
     property var selectedRemoteItems: []
+    property var pendingUploads: []
+    property var conflictingUploadPaths: []
     property bool logsNeedHorizontalScroll: false
     property string activeHost: ""
     property string activeProtocol: "sftp"
@@ -157,6 +159,13 @@ ApplicationWindow {
         if (target.endsWith("/")) {
             return joinRemotePath(target, localName)
         }
+        if (target === "~" || target.startsWith("~/")) {
+            return target
+        }
+        var current = currentRemotePath && currentRemotePath.length > 0 ? currentRemotePath.replace(/\/$/, "") : "/"
+        if (current !== "/" && (target === current || target.startsWith(current + "/"))) {
+            return target
+        }
         if (!target.startsWith("/")) {
             return joinRemotePath(currentRemotePath, target)
         }
@@ -183,11 +192,16 @@ ApplicationWindow {
     }
 
     function prepareUploadRemotePath(localPath) {
-        var localName = root.selectedLocalName.length > 0 ? root.selectedLocalName : root.fileNameFromPath(localPath)
+        var usesSelectedPath = localPath === root.selectedLocalPath
+        var localName = usesSelectedPath && root.selectedLocalName.length > 0 ? root.selectedLocalName : root.fileNameFromPath(localPath)
+        var localIsDirectory = usesSelectedPath ? root.selectedLocalIsDirectory : leftModel.isDirectoryPath(localPath)
         if (root.transferRemotePath.length > 0 && root.transferRemotePath !== root.selectedRemotePath) {
             return root.normalizeUploadRemotePath(root.transferRemotePath, remoteModel.path, localName)
         }
         if (root.selectedRemoteIsDirectory && root.selectedRemotePath.length > 0) {
+            if (localIsDirectory && root.selectedRemoteName === localName) {
+                return root.selectedRemotePath
+            }
             return root.joinRemotePath(root.selectedRemotePath, localName)
         }
         return root.joinRemotePath(remoteModel.path, localName)
@@ -244,37 +258,76 @@ ApplicationWindow {
         return "ssh -N -L " + local + ":" + tunnelLocalPortField.value + ":" + siteHostField.text.trim() + ":" + sitePortField.value + " -J " + root.proxyJumpChain() + " -p " + finalSshPortField.value + " " + finalUser + finalHost
     }
 
+    function buildPendingUploads() {
+        var uploads = []
+        if (selectedLocalItems.length > 0) {
+            var baseRemotePath = selectedRemoteIsDirectory && selectedRemotePath.length > 0 ? selectedRemotePath : remoteModel.path
+            for (var i = 0; i < selectedLocalItems.length; i++) {
+                var item = selectedLocalItems[i]
+                var destination = item.isDirectory && selectedRemoteIsDirectory && selectedRemoteName === item.name
+                                  ? selectedRemotePath
+                                  : joinRemotePath(baseRemotePath, item.name)
+                uploads.push({ source: item.path, destination: destination })
+            }
+            return uploads
+        }
+        var localPath = root.transferLocalPath.length > 0 ? root.transferLocalPath : root.selectedLocalPath
+        if (localPath.length === 0) {
+            return uploads
+        }
+        uploads.push({ source: localPath, destination: root.prepareUploadRemotePath(localPath) })
+        return uploads
+    }
+
+    function queuePendingUploads(conflictPolicy) {
+        var uploads = root.pendingUploads
+        var queuedUploads = 0
+        for (var i = 0; i < uploads.length; i++) {
+            var upload = uploads[i]
+            if (queueModel.enqueueRemoteUpload(activeProtocol, activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, upload.source, upload.destination, conflictPolicy)) {
+                queuedUploads++
+                addLog(qsTr("Queued upload %1 → %2").arg(upload.source).arg(upload.destination))
+            } else {
+                addLog(qsTr("Upload queue failed: %1").arg(upload.source))
+            }
+        }
+        if (uploads.length === 1) {
+            root.transferRemotePath = uploads[0].destination
+        }
+        statusText = qsTr("Queued %1 of %2 uploads").arg(queuedUploads).arg(uploads.length)
+        root.pendingUploads = []
+        root.conflictingUploadPaths = []
+    }
+
     function performUpload() {
         if (!remoteModel.connected) {
             statusText = qsTr("Connect to a remote session before uploading")
             return
         }
-        if (selectedLocalItems.length > 0) {
-            var queuedUploads = 0
-            var baseRemotePath = selectedRemoteIsDirectory && selectedRemotePath.length > 0 ? selectedRemotePath : remoteModel.path
-            for (var i = 0; i < selectedLocalItems.length; i++) {
-                var item = selectedLocalItems[i]
-                var destination = joinRemotePath(baseRemotePath, item.name)
-                if (queueModel.enqueueRemoteUpload(activeProtocol, activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, item.path, destination)) {
-                    queuedUploads++
-                    addLog(qsTr("Queued upload %1 → %2").arg(item.path).arg(destination))
-                } else {
-                    addLog(qsTr("Upload queue failed: %1").arg(item.path))
-                }
-            }
-            statusText = qsTr("Queued %1 of %2 selected uploads").arg(queuedUploads).arg(selectedLocalItems.length)
-            return
-        }
-        var localPath = root.transferLocalPath.length > 0 ? root.transferLocalPath : root.selectedLocalPath
-        if (localPath.length === 0) {
+        var uploads = root.buildPendingUploads()
+        if (uploads.length === 0) {
             statusText = qsTr("Select a local file or folder before uploading")
             return
         }
-        var remotePath = root.prepareUploadRemotePath(localPath)
-        if (queueModel.enqueueRemoteUpload(activeProtocol, activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, localPath, remotePath)) {
-            root.transferRemotePath = remotePath
-            statusText = qsTr("Queued upload %1").arg(localPath)
-            addLog(qsTr("Queued upload %1 → %2").arg(localPath).arg(remotePath))
+        var conflicts = []
+        for (var i = 0; i < uploads.length; i++) {
+            var entryStatus = remoteModel.entryStatus(uploads[i].destination)
+            if (entryStatus < 0) {
+                statusText = qsTr("Could not check whether %1 already exists: %2").arg(uploads[i].destination).arg(remoteModel.error)
+                root.pendingUploads = []
+                root.conflictingUploadPaths = []
+                return
+            }
+            if (entryStatus > 0) {
+                conflicts.push(uploads[i].destination)
+            }
+        }
+        root.pendingUploads = uploads
+        root.conflictingUploadPaths = conflicts
+        if (conflicts.length > 0) {
+            overwritePromptDialog.open()
+        } else {
+            root.queuePendingUploads("")
         }
     }
 
@@ -371,6 +424,16 @@ ApplicationWindow {
     }
 
     Connections {
+        target: remoteModel
+        function onPathChanged() {
+            root.clearRemoteSelection()
+        }
+        function onConnectedChanged() {
+            root.clearRemoteSelection()
+        }
+    }
+
+    Connections {
         target: leftModel
         function onPathChanged() {
             root.clearLocalSelection()
@@ -408,6 +471,119 @@ ApplicationWindow {
 
     function effectiveNestedHopSpecs() {
         return root.serializeNestedHops()
+    }
+
+    function profileDisplayText(line) {
+        if (line && line.trim().charAt(0) === "{") {
+            try {
+                var profile = JSON.parse(line)
+                return (profile.name || qsTr("Unnamed")) + "  —  " + (profile.protocol || "sftp").toUpperCase() + "  " + (profile.host || "")
+            } catch (e) {
+                return qsTr("Invalid saved profile")
+            }
+        }
+        var fields = line.split("\t")
+        return line.length > 0 ? fields[0] + "  —  " + fields[2] : ""
+    }
+
+    function nestedHopsAsArray() {
+        var hops = []
+        for (var i = 0; i < nestedHopModel.count; i++) {
+            var hop = nestedHopModel.get(i)
+            hops.push({
+                user: hop.user || "",
+                host: hop.host || "",
+                port: hop.port || 22,
+                authMode: hop.authMode === undefined ? 0 : hop.authMode,
+                key: hop.key || ""
+            })
+        }
+        return hops
+    }
+
+    function currentSiteConfigurationJson() {
+        var profileName = siteNameField.text.trim()
+        if (profileName.length === 0) {
+            profileName = (siteUsernameField.text.trim().length > 0 ? siteUsernameField.text.trim() + "@" : "") + siteHostField.text.trim()
+        }
+        return JSON.stringify({
+            schema: 1,
+            name: profileName,
+            protocol: protocolCombo.currentText.toLowerCase(),
+            authMethod: authMethodCombo.currentText,
+            host: siteHostField.text.trim(),
+            port: sitePortField.value,
+            username: siteUsernameField.text.trim(),
+            remotePath: siteRemotePathField.text.trim().length > 0 ? siteRemotePathField.text.trim() : "/",
+            credentialRef: siteCredentialRefField.text.trim(),
+            privateKeyPath: sitePrivateKeyField.text.trim(),
+            sshKeyTypeIndex: sshKeyTypeCombo.currentIndex,
+            connectionModeIndex: connectionModeCombo.currentIndex,
+            tunnelLocalHost: tunnelLocalHostField.text.trim().length > 0 ? tunnelLocalHostField.text.trim() : "127.0.0.1",
+            tunnelLocalPort: tunnelLocalPortField.value,
+            jumpUsername: jumpUsernameField.text.trim(),
+            jumpHost: jumpHostField.text.trim(),
+            jumpPort: jumpPortField.value,
+            nestedHops: root.nestedHopsAsArray(),
+            finalSshUsername: finalSshUsernameField.text.trim(),
+            finalSshHost: finalSshHostField.text.trim(),
+            finalSshPort: finalSshPortField.value,
+            finalSshAuthModeIndex: finalSshAuthModeCombo.currentIndex,
+            finalSshKeyPath: finalSshKeyField.text.trim()
+        })
+    }
+
+    function applySiteConfigurationLine(line) {
+        selectedSiteLine = line
+        if (line && line.trim().charAt(0) === "{") {
+            try {
+                var profile = JSON.parse(line)
+                siteNameField.text = profile.name || ""
+                var savedProtocol = (profile.protocol || "sftp").toUpperCase()
+                protocolCombo.currentIndex = Math.max(0, protocolCombo.model.indexOf(savedProtocol))
+                authMethodCombo.currentIndex = authMethodCombo.model.indexOf(profile.authMethod || "Password") >= 0 ? authMethodCombo.model.indexOf(profile.authMethod || "Password") : 0
+                siteHostField.text = profile.host || ""
+                sitePortField.value = Number(profile.port || root.defaultPortForProtocol(protocolCombo.currentText))
+                siteUsernameField.text = profile.username || ""
+                siteRemotePathField.text = profile.remotePath || "/"
+                siteCredentialRefField.text = profile.credentialRef || ""
+                sitePrivateKeyField.text = profile.privateKeyPath || ""
+                sshKeyTypeCombo.currentIndex = Number(profile.sshKeyTypeIndex || 0)
+                connectionModeCombo.currentIndex = Number(profile.connectionModeIndex || 0)
+                tunnelLocalHostField.text = profile.tunnelLocalHost || "127.0.0.1"
+                tunnelLocalPortField.value = Number(profile.tunnelLocalPort || 2222)
+                jumpUsernameField.text = profile.jumpUsername || ""
+                jumpHostField.text = profile.jumpHost || ""
+                jumpPortField.value = Number(profile.jumpPort || 22)
+                nestedHopModel.clear()
+                var hops = profile.nestedHops || []
+                for (var i = 0; i < hops.length; i++) {
+                    nestedHopModel.append({ user: hops[i].user || "", host: hops[i].host || "", port: Number(hops[i].port || 22), authMode: Number(hops[i].authMode || 0), key: hops[i].key || "", password: "" })
+                }
+                finalSshUsernameField.text = profile.finalSshUsername || ""
+                finalSshHostField.text = profile.finalSshHost || ""
+                finalSshPortField.value = Number(profile.finalSshPort || 22)
+                finalSshAuthModeCombo.currentIndex = Number(profile.finalSshAuthModeIndex || 0)
+                finalSshKeyField.text = profile.finalSshKeyPath || ""
+                sitePasswordField.text = ""
+                sitePrivateKeyPassphraseField.text = ""
+                jumpPasswordField.text = ""
+                finalSshPasswordField.text = ""
+                root.addLog(qsTr("Restored saved profile %1").arg(siteNameField.text))
+                return
+            } catch (e) {
+                root.addLog(qsTr("Saved profile parse failed: %1").arg(e))
+            }
+        }
+        var fields = line.split("\t")
+        siteNameField.text = fields[0] || ""
+        var legacyProtocol = (fields[1] || "sftp").toUpperCase()
+        protocolCombo.currentIndex = Math.max(0, protocolCombo.model.indexOf(legacyProtocol))
+        siteHostField.text = fields[2] || ""
+        sitePortField.value = Number(fields[3] || root.defaultPortForProtocol(protocolCombo.currentText))
+        siteUsernameField.text = fields[4] || ""
+        siteRemotePathField.text = fields[5] || "/"
+        siteCredentialRefField.text = fields[6] || ""
     }
 
     function nestedHopChainLabel() {
@@ -760,6 +936,19 @@ ApplicationWindow {
                 onToggled: root.darkMode = checked
                 Accessible.name: qsTr("Toggle light and dark mode")
             }
+
+            Switch {
+                id: openSshBackendSwitch
+                checked: queueModel.useOpenSshBackend
+                text: checked ? qsTr("OpenSSH") : qsTr("Rust")
+                ToolTip.visible: hovered
+                ToolTip.text: qsTr("Use system scp as an external child process for SFTP/SCP transfers. CrossSCP does not link or bundle OpenSSH.")
+                onToggled: {
+                    queueModel.useOpenSshBackend = checked
+                    root.addLog(checked ? qsTr("Enabled OpenSSH transfer backend (external child process)") : qsTr("Enabled internal Rust transfer backend"))
+                }
+                Accessible.name: qsTr("Toggle OpenSSH transfer backend")
+            }
         }
     }
 
@@ -850,19 +1039,8 @@ ApplicationWindow {
                 model: savedSites
                 delegate: ItemDelegate {
                     width: ListView.view.width
-                    text: modelData.length > 0 ? modelData.split("\t")[0] + "  —  " + modelData.split("\t")[2] : ""
-                    onClicked: {
-                        selectedSiteLine = modelData
-                        var fields = modelData.split("\t")
-                        siteNameField.text = fields[0] || ""
-                        var savedProtocol = (fields[1] || "sftp").toUpperCase()
-                        protocolCombo.currentIndex = Math.max(0, protocolCombo.model.indexOf(savedProtocol))
-                        siteHostField.text = fields[2] || ""
-                        sitePortField.value = Number(fields[3] || root.defaultPortForProtocol(protocolCombo.currentText))
-                        siteUsernameField.text = fields[4] || ""
-                        siteRemotePathField.text = fields[5] || "/"
-                        siteCredentialRefField.text = fields[6] || ""
-                    }
+                    text: root.profileDisplayText(modelData)
+                    onClicked: root.applySiteConfigurationLine(modelData)
                 }
             }
 
@@ -1141,9 +1319,9 @@ ApplicationWindow {
                     text: qsTr("Save")
                     Layout.fillWidth: true
                     onClicked: {
-                        if (backend.saveSite(protocolCombo.currentText.toLowerCase(), siteNameField.text, siteHostField.text, sitePortField.value, siteUsernameField.text, siteRemotePathField.text, siteCredentialRefField.text)) {
+                        if (backend.saveSiteConfiguration(root.currentSiteConfigurationJson())) {
                             savedSites = backend.listSites()
-                            root.addLog(qsTr("Saved site profile %1").arg(siteNameField.text))
+                            root.addLog(qsTr("Saved full site profile %1").arg(siteNameField.text.length > 0 ? siteNameField.text : siteHostField.text))
                         }
                     }
                 }
@@ -1212,6 +1390,10 @@ ApplicationWindow {
                             root.activePassword = authMethodCombo.currentText === "Password" ? sitePasswordField.text : ""
                             root.activePrivateKeyPath = authMethodCombo.currentText === "SSH Private Key" ? sitePrivateKeyField.text.trim() : ""
                             root.activePrivateKeyPassphrase = authMethodCombo.currentText === "SSH Private Key" ? sitePrivateKeyPassphraseField.text : ""
+                            if (backend.saveSiteConfiguration(root.currentSiteConfigurationJson())) {
+                                savedSites = backend.listSites()
+                                root.addLog(qsTr("Updated saved profile %1").arg(siteNameField.text.length > 0 ? siteNameField.text : siteHostField.text))
+                            }
                             root.addLog(qsTr("Connected to %1:%2 as %3").arg(connectHost).arg(connectPort).arg(siteUsernameField.text))
                             siteManagerDialog.close()
                         } else if (connectionModeCombo.currentIndex === 2 || connectionModeCombo.currentIndex === 3) {
@@ -1292,17 +1474,60 @@ ApplicationWindow {
 
     Dialog {
         id: overwritePromptDialog
-        title: qsTr("Overwrite Confirmation")
+        title: qsTr("File or folder already exists")
         modal: true
-        standardButtons: Dialog.Yes | Dialog.No | Dialog.Cancel
         anchors.centerIn: parent
-        Label {
-            text: qsTr("Prompt broker UI placeholder. Real overwrite/host-key prompts will route through this pattern.")
-            wrapMode: Text.WordWrap
-            width: 360
+        width: Math.min(root.width * 0.58, 620)
+        contentItem: ColumnLayout {
+            spacing: 10
+            Label {
+                Layout.fillWidth: true
+                text: root.conflictingUploadPaths.length === 1
+                      ? qsTr("An item named %1 already exists at the destination.").arg(root.conflictingUploadPaths[0])
+                      : qsTr("%1 items already exist at the destination.").arg(root.conflictingUploadPaths.length)
+                wrapMode: Text.WrapAnywhere
+                font.bold: true
+            }
+            Label {
+                Layout.fillWidth: true
+                text: qsTr("Keep existing skips conflicting files while still merging new files into existing folders. Replace overwrites conflicting files. Keep both renames the new item by adding a number.")
+                wrapMode: Text.WordWrap
+                color: root.themeMuted
+            }
         }
-        onAccepted: statusText = qsTr("Prompt accepted")
-        onRejected: statusText = qsTr("Prompt rejected or cancelled")
+        footer: DialogButtonBox {
+            Button {
+                text: qsTr("Keep existing")
+                onClicked: {
+                    root.queuePendingUploads("keep-existing")
+                    overwritePromptDialog.accept()
+                }
+            }
+            Button {
+                text: qsTr("Replace")
+                highlighted: true
+                onClicked: {
+                    root.queuePendingUploads("replace")
+                    overwritePromptDialog.accept()
+                }
+            }
+            Button {
+                text: qsTr("Keep both")
+                onClicked: {
+                    root.queuePendingUploads("keep-both")
+                    overwritePromptDialog.accept()
+                }
+            }
+            Button {
+                text: qsTr("Cancel")
+                onClicked: overwritePromptDialog.reject()
+            }
+        }
+        onRejected: {
+            root.pendingUploads = []
+            root.conflictingUploadPaths = []
+            root.statusText = qsTr("Upload cancelled")
+        }
     }
 
     Dialog {

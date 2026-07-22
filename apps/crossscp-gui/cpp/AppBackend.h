@@ -28,6 +28,7 @@ public:
   bool systemDarkMode() const;
 
   Q_INVOKABLE QStringList listSites();
+  Q_INVOKABLE bool saveSiteConfiguration(const QString &configurationJson);
   Q_INVOKABLE bool saveSite(const QString &protocol, const QString &name, const QString &host, int port,
                             const QString &username,
                             const QString &remotePath,
@@ -75,6 +76,7 @@ private:
 
   QString status_;
   QString sessionsPath_;
+  QString fullSessionsPath_;
   QProcess *sshTunnelProcess_ = nullptr;
   QString sshAskPassPath_;
   QString sshConfigPath_;
