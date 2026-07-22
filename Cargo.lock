@@ -89,7 +89,7 @@ checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "crossscp-cli"
-version = "0.1.0"
+version = "1.0.2"
 dependencies = [
  "crossscp-config",
  "crossscp-core",
@@ -103,32 +103,32 @@ dependencies = [
 
 [[package]]
 name = "crossscp-config"
-version = "0.1.0"
+version = "1.0.2"
 dependencies = [
  "crossscp-core",
 ]
 
 [[package]]
 name = "crossscp-core"
-version = "0.1.0"
+version = "1.0.2"
 
 [[package]]
 name = "crossscp-platform-macos"
-version = "0.1.0"
+version = "1.0.2"
 dependencies = [
  "crossscp-security",
 ]
 
 [[package]]
 name = "crossscp-platform-windows"
-version = "0.1.0"
+version = "1.0.2"
 dependencies = [
  "crossscp-security",
 ]
 
 [[package]]
 name = "crossscp-protocol-ftp"
-version = "0.1.0"
+version = "1.0.2"
 dependencies = [
  "crossscp-core",
  "crossscp-security",
@@ -137,11 +137,11 @@ dependencies = [
 
 [[package]]
 name = "crossscp-protocol-http"
-version = "0.1.0"
+version = "1.0.2"
 
 [[package]]
 name = "crossscp-protocol-local"
-version = "0.1.0"
+version = "1.0.2"
 dependencies = [
  "crossscp-core",
  "crossscp-transfer",
@@ -149,7 +149,7 @@ dependencies = [
 
 [[package]]
 name = "crossscp-protocol-s3"
-version = "0.1.0"
+version = "1.0.2"
 dependencies = [
  "crossscp-core",
  "crossscp-protocol-http",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "crossscp-protocol-scp"
-version = "0.1.0"
+version = "1.0.2"
 dependencies = [
  "crossscp-core",
  "crossscp-security",
@@ -166,7 +166,7 @@ dependencies = [
 
 [[package]]
 name = "crossscp-protocol-sftp"
-version = "0.1.0"
+version = "1.0.2"
 dependencies = [
  "crossscp-core",
  "crossscp-security",
@@ -175,7 +175,7 @@ dependencies = [
 
 [[package]]
 name = "crossscp-protocol-webdav"
-version = "0.1.0"
+version = "1.0.2"
 dependencies = [
  "crossscp-core",
  "crossscp-protocol-http",
@@ -183,14 +183,14 @@ dependencies = [
 
 [[package]]
 name = "crossscp-security"
-version = "0.1.0"
+version = "1.0.2"
 dependencies = [
  "zeroize",
 ]
 
 [[package]]
 name = "crossscp-transfer"
-version = "0.1.0"
+version = "1.0.2"
 
 [[package]]
 name = "equivalent"

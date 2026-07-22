@@ -64,7 +64,7 @@ secrets are configured.
 Recommended no-Apple-Developer-account tester install:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/install-macos.sh | bash
+curl -fsSL https://github.com/pat229988/Cross-SCP/releases/latest/download/install-macos.sh | bash
 ```
 
 What this script does:
@@ -83,21 +83,21 @@ What this script does:
 Install to another folder:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/install-macos.sh \
+curl -fsSL https://github.com/pat229988/Cross-SCP/releases/latest/download/install-macos.sh \
   | CROSSSCP_INSTALL_DIR="$HOME/Applications" bash
 ```
 
 Install a specific tag:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/install-macos.sh \
-  | CROSSSCP_VERSION="v0.1.0-beta.3" bash
+curl -fsSL https://github.com/pat229988/Cross-SCP/releases/download/v1.0.2/install-macos.sh \
+  | CROSSSCP_VERSION="v1.0.2" bash
 ```
 
 Install from a direct DMG URL:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/install-macos.sh \
+curl -fsSL https://github.com/pat229988/Cross-SCP/releases/latest/download/install-macos.sh \
   | CROSSSCP_DMG_URL="https://example.com/CrossSCP.dmg" bash
 ```
 
