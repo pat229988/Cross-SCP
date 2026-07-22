@@ -43,7 +43,7 @@ For macOS testers, use the terminal installer so the app can be copied and the
 browser quarantine attribute can be removed automatically:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/install-macos.sh | bash
+curl -fsSL https://github.com/pat229988/Cross-SCP/releases/latest/download/install-macos.sh | bash
 ```
 
 See [`docs/INSTALLATION.md`](docs/INSTALLATION.md) for macOS Gatekeeper details,

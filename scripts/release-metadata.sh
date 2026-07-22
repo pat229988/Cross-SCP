@@ -25,14 +25,28 @@ fi
 TARGET_OS="$1"
 TARGET_ARCH="$2"
 ARTIFACT_OS="${CROSSSCP_ARTIFACT_OS:-${TARGET_OS}}"
+BASE_VERSION="$(tr -d '[:space:]' < VERSION)"
 
-if [[ -n "${CROSSSCP_VERSION:-}" ]]; then
-  VERSION="${CROSSSCP_VERSION}"
-elif [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+if [[ ! "${BASE_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+  printf 'VERSION must contain a semver tag; found: %s\n' "${BASE_VERSION}" >&2
+  exit 1
+fi
+
+if [[ "${GITHUB_REF_TYPE:-}" == "tag" && -n "${GITHUB_REF_NAME:-}" ]]; then
+  if [[ "${GITHUB_REF_NAME}" != "${BASE_VERSION}" ]]; then
+    printf 'Release tag %s does not match VERSION %s\n' "${GITHUB_REF_NAME}" "${BASE_VERSION}" >&2
+    exit 1
+  fi
+  if [[ -n "${CROSSSCP_VERSION:-}" && "${CROSSSCP_VERSION}" != "${GITHUB_REF_NAME}" ]]; then
+    printf 'CROSSSCP_VERSION %s does not match release tag %s\n' "${CROSSSCP_VERSION}" "${GITHUB_REF_NAME}" >&2
+    exit 1
+  fi
   VERSION="${GITHUB_REF_NAME}"
+elif [[ -n "${CROSSSCP_VERSION:-}" ]]; then
+  VERSION="${CROSSSCP_VERSION}"
 else
   SHORT_SHA="$(git rev-parse --short HEAD 2>/dev/null || printf 'unknown')"
-  VERSION="v0.1.0-dev-${SHORT_SHA}"
+  VERSION="${BASE_VERSION}-dev-${SHORT_SHA}"
 fi
 
 COMMIT_SHA="$(git rev-parse HEAD 2>/dev/null || printf 'unknown')"
