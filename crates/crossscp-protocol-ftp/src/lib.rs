@@ -5,12 +5,12 @@
 use std::fmt;
 use std::fs::{self, File};
 use std::io::{Cursor, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use crossscp_core::{
-    numbered_conflict_path, FileConflictPolicy, ProtocolCapabilities, RemoteFile, SessionProfile,
-    SessionProtocol,
+    numbered_conflict_path, numbered_local_conflict_path, FileConflictPolicy, ProtocolCapabilities,
+    RemoteFile, SessionProfile, SessionProtocol,
 };
 use crossscp_security::{CredentialRef, CredentialSecret, CredentialService, SecurityError};
 use suppaftp::list::File as FtpListFile;
@@ -356,26 +356,45 @@ impl FtpAdapter {
         remote_path: &str,
         local_path: &str,
     ) -> Result<FtpTransferSummary, FtpError> {
+        self.download_path_with_policy(remote_path, local_path, FileConflictPolicy::Replace)
+    }
+
+    pub fn download_path_with_policy(
+        &mut self,
+        remote_path: &str,
+        local_path: &str,
+        conflict_policy: FileConflictPolicy,
+    ) -> Result<FtpTransferSummary, FtpError> {
         validate_ftp_path(remote_path)?;
         if let Ok(entries) = self.list_directory(remote_path) {
-            fs::create_dir_all(local_path)?;
-            let mut summary = FtpTransferSummary::new(remote_path, local_path);
+            let Some(destination) =
+                resolve_local_download_destination(Path::new(local_path), true, conflict_policy)?
+            else {
+                return Ok(FtpTransferSummary::new(remote_path, local_path));
+            };
+            fs::create_dir_all(&destination)?;
+            let mut summary =
+                FtpTransferSummary::new(remote_path, destination.to_string_lossy().into_owned());
             for entry in entries {
                 if entry.name == "." || entry.name == ".." {
                     continue;
                 }
-                let child_local = Path::new(local_path).join(&entry.name);
+                let child_local = destination.join(&entry.name);
                 let child_summary = if entry.is_directory {
-                    self.download_path(&entry.path, &child_local.to_string_lossy())?
+                    self.download_path_with_policy(
+                        &entry.path,
+                        &child_local.to_string_lossy(),
+                        conflict_policy,
+                    )?
                 } else {
-                    self.download_file(&entry.path, &child_local)?
+                    self.download_file_with_policy(&entry.path, &child_local, conflict_policy)?
                 };
                 summary.bytes_done += child_summary.bytes_done;
                 summary.bytes_total = Some(summary.bytes_done);
             }
             Ok(summary)
         } else {
-            self.download_file(remote_path, Path::new(local_path))
+            self.download_file_with_policy(remote_path, Path::new(local_path), conflict_policy)
         }
     }
 
@@ -521,22 +540,31 @@ impl FtpAdapter {
             .find(|entry| entry.name == name))
     }
 
-    fn download_file(
+    fn download_file_with_policy(
         &mut self,
         remote_path: &str,
         local_path: &Path,
+        conflict_policy: FileConflictPolicy,
     ) -> Result<FtpTransferSummary, FtpError> {
         validate_ftp_path(remote_path)?;
-        if let Some(parent) = local_path.parent() {
+        let Some(destination) =
+            resolve_local_download_destination(local_path, false, conflict_policy)?
+        else {
+            return Ok(FtpTransferSummary::new(
+                remote_path,
+                local_path.to_string_lossy().into_owned(),
+            ));
+        };
+        if let Some(parent) = destination.parent() {
             fs::create_dir_all(parent)?;
         }
         let buffer = self.session_mut()?.retr_as_buffer(remote_path)?;
         let bytes = buffer.into_inner();
-        let mut file = File::create(local_path)?;
+        let mut file = File::create(&destination)?;
         file.write_all(&bytes)?;
         Ok(FtpTransferSummary {
             source: remote_path.to_string(),
-            destination: local_path.to_string_lossy().to_string(),
+            destination: destination.to_string_lossy().to_string(),
             bytes_done: bytes.len() as u64,
             bytes_total: Some(bytes.len() as u64),
         })
@@ -545,6 +573,62 @@ impl FtpAdapter {
     fn session_mut(&mut self) -> Result<&mut FtpSession, FtpError> {
         self.session.as_mut().ok_or(FtpError::NotConnected)
     }
+}
+
+fn resolve_local_download_destination(
+    local_path: &Path,
+    source_is_directory: bool,
+    conflict_policy: FileConflictPolicy,
+) -> Result<Option<PathBuf>, FtpError> {
+    let metadata = match fs::symlink_metadata(local_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Some(local_path.to_path_buf()));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let destination_is_directory = metadata.file_type().is_dir();
+    match conflict_policy {
+        FileConflictPolicy::KeepExisting => {
+            if source_is_directory && destination_is_directory {
+                Ok(Some(local_path.to_path_buf()))
+            } else {
+                Ok(None)
+            }
+        }
+        FileConflictPolicy::Replace => {
+            if source_is_directory && destination_is_directory {
+                return Ok(Some(local_path.to_path_buf()));
+            }
+            remove_local_path(local_path, &metadata)?;
+            Ok(Some(local_path.to_path_buf()))
+        }
+        FileConflictPolicy::KeepBoth => {
+            for copy_number in 1..=u32::MAX {
+                let candidate =
+                    numbered_local_conflict_path(local_path, copy_number, source_is_directory);
+                match fs::symlink_metadata(&candidate) {
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        return Ok(Some(candidate));
+                    }
+                    Ok(_) => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            Err(FtpError::Io(
+                "could not allocate a numbered local destination".to_string(),
+            ))
+        }
+    }
+}
+
+fn remove_local_path(path: &Path, metadata: &fs::Metadata) -> Result<(), FtpError> {
+    if metadata.file_type().is_dir() {
+        fs::remove_dir_all(path)?;
+    } else {
+        fs::remove_file(path)?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -701,11 +785,25 @@ impl From<suppaftp::native_tls::Error> for FtpError {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use crossscp_security::{
         CredentialSecret, CredentialService, InMemoryCredentialService, SecretString,
     };
 
     use super::*;
+
+    fn temporary_directory(test_name: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "crossscp-ftp-{test_name}-{}-{nonce}",
+            std::process::id()
+        ))
+    }
 
     #[test]
     fn ftps_defaults_to_explicit_mode_and_tls_capabilities() {
@@ -740,6 +838,26 @@ mod tests {
         let auth = resolve_ftp_credentials(&config, &service).expect("auth");
         assert_eq!(auth.username, "alice");
         assert_eq!(auth.password, "secret");
+    }
+
+    #[test]
+    fn local_download_conflicts_merge_or_allocate_siblings() {
+        let root = temporary_directory("download-conflicts");
+        let destination = root.join("photos");
+        fs::create_dir_all(&destination).expect("create destination");
+
+        assert_eq!(
+            resolve_local_download_destination(&destination, true, FileConflictPolicy::Replace,)
+                .expect("resolve replace destination"),
+            Some(destination.clone())
+        );
+        assert_eq!(
+            resolve_local_download_destination(&destination, true, FileConflictPolicy::KeepBoth,)
+                .expect("resolve keep-both destination"),
+            Some(root.join("photos (1)"))
+        );
+
+        fs::remove_dir_all(root).expect("clean temporary directory");
     }
 
     #[test]

@@ -241,6 +241,40 @@ pub fn numbered_conflict_path(path: &str, copy_number: u32, is_directory: bool) 
     }
 }
 
+/// Returns a numbered sibling path for a conflicting local file or directory.
+#[must_use]
+pub fn numbered_local_conflict_path(
+    path: &std::path::Path,
+    copy_number: u32,
+    is_directory: bool,
+) -> std::path::PathBuf {
+    let copy_number = copy_number.max(1);
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy())
+        .unwrap_or_default();
+    let numbered_name = if is_directory {
+        format!("{name} ({copy_number})")
+    } else {
+        let name_path = std::path::Path::new(name.as_ref());
+        match (
+            name_path.file_stem().map(|stem| stem.to_string_lossy()),
+            name_path
+                .extension()
+                .map(|extension| extension.to_string_lossy()),
+        ) {
+            (Some(stem), Some(extension)) if !stem.is_empty() => {
+                format!("{stem} ({copy_number}).{extension}")
+            }
+            _ => format!("{name} ({copy_number})"),
+        }
+    };
+    path.parent().map_or_else(
+        || std::path::PathBuf::from(&numbered_name),
+        |parent| parent.join(&numbered_name),
+    )
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RemoteListRequest {
     pub path: String,
@@ -375,7 +409,9 @@ pub trait RemoteFileSystem {
 
 #[cfg(test)]
 mod tests {
-    use super::numbered_conflict_path;
+    use std::path::Path;
+
+    use super::{numbered_conflict_path, numbered_local_conflict_path};
 
     #[test]
     fn numbered_conflict_paths_preserve_file_extensions() {
@@ -402,6 +438,26 @@ mod tests {
         assert_eq!(
             numbered_conflict_path("/uploads/photos/", 1, true),
             "/uploads/photos (1)"
+        );
+    }
+
+    #[test]
+    fn numbered_local_conflict_paths_use_native_siblings() {
+        assert_eq!(
+            numbered_local_conflict_path(Path::new("/downloads/report.pdf"), 1, false),
+            Path::new("/downloads/report (1).pdf")
+        );
+        assert_eq!(
+            numbered_local_conflict_path(Path::new("/downloads/archive.tar.gz"), 2, false),
+            Path::new("/downloads/archive.tar (2).gz")
+        );
+        assert_eq!(
+            numbered_local_conflict_path(Path::new("/downloads/.env"), 1, false),
+            Path::new("/downloads/.env (1)")
+        );
+        assert_eq!(
+            numbered_local_conflict_path(Path::new("/downloads/photos"), 3, true),
+            Path::new("/downloads/photos (3)")
         );
     }
 }

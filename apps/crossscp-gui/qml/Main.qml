@@ -32,6 +32,9 @@ ApplicationWindow {
     property var selectedRemoteItems: []
     property var pendingUploads: []
     property var conflictingUploadPaths: []
+    property var pendingDownloads: []
+    property var conflictingDownloadPaths: []
+    property bool pendingConflictIsDownload: false
     property bool logsNeedHorizontalScroll: false
     property string activeHost: ""
     property string activeProtocol: "sftp"
@@ -297,6 +300,52 @@ ApplicationWindow {
         statusText = qsTr("Queued %1 of %2 uploads").arg(queuedUploads).arg(uploads.length)
         root.pendingUploads = []
         root.conflictingUploadPaths = []
+        root.pendingConflictIsDownload = false
+    }
+
+    function buildPendingDownloads() {
+        var downloads = []
+        if (selectedRemoteItems.length > 0) {
+            for (var i = 0; i < selectedRemoteItems.length; i++) {
+                var item = selectedRemoteItems[i]
+                downloads.push({
+                    source: item.path,
+                    destination: root.joinLocalPath(leftModel.path, item.name)
+                })
+            }
+            return downloads
+        }
+        var remotePath = root.transferRemotePath.length > 0 ? root.transferRemotePath : root.selectedRemotePath
+        if (remotePath.length === 0) {
+            return downloads
+        }
+        var localName = root.selectedRemoteName.length > 0 ? root.selectedRemoteName : root.fileNameFromPath(remotePath)
+        var localPath = root.transferLocalPath.length > 0
+                      ? root.transferLocalPath
+                      : root.joinLocalPath(leftModel.path, localName)
+        downloads.push({ source: remotePath, destination: localPath })
+        return downloads
+    }
+
+    function queuePendingDownloads(conflictPolicy) {
+        var downloads = root.pendingDownloads
+        var queuedDownloads = 0
+        for (var i = 0; i < downloads.length; i++) {
+            var download = downloads[i]
+            if (queueModel.enqueueRemoteDownload(activeProtocol, activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, download.source, download.destination, conflictPolicy)) {
+                queuedDownloads++
+                addLog(qsTr("Queued download %1 → %2").arg(download.source).arg(download.destination))
+            } else {
+                addLog(qsTr("Download queue failed: %1").arg(download.source))
+            }
+        }
+        if (downloads.length === 1) {
+            root.transferLocalPath = downloads[0].destination
+        }
+        statusText = qsTr("Queued %1 of %2 downloads").arg(queuedDownloads).arg(downloads.length)
+        root.pendingDownloads = []
+        root.conflictingDownloadPaths = []
+        root.pendingConflictIsDownload = false
     }
 
     function performUpload() {
@@ -324,6 +373,7 @@ ApplicationWindow {
         }
         root.pendingUploads = uploads
         root.conflictingUploadPaths = conflicts
+        root.pendingConflictIsDownload = false
         if (conflicts.length > 0) {
             overwritePromptDialog.open()
         } else {
@@ -336,32 +386,31 @@ ApplicationWindow {
             statusText = qsTr("Connect to a remote session before downloading")
             return
         }
-        if (selectedRemoteItems.length > 0) {
-            var queuedDownloads = 0
-            for (var i = 0; i < selectedRemoteItems.length; i++) {
-                var item = selectedRemoteItems[i]
-                var destination = joinLocalPath(leftModel.path, item.name)
-                if (queueModel.enqueueRemoteDownload(activeProtocol, activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, item.path, destination)) {
-                    queuedDownloads++
-                    addLog(qsTr("Queued download %1 → %2").arg(item.path).arg(destination))
-                } else {
-                    addLog(qsTr("Download queue failed: %1").arg(item.path))
-                }
-            }
-            statusText = qsTr("Queued %1 of %2 selected downloads").arg(queuedDownloads).arg(selectedRemoteItems.length)
-            return
-        }
-        var remotePath = root.transferRemotePath.length > 0 ? root.transferRemotePath : root.selectedRemotePath
-        if (remotePath.length === 0) {
+        var downloads = root.buildPendingDownloads()
+        if (downloads.length === 0) {
             statusText = qsTr("Select a remote file or folder before downloading")
             return
         }
-        var localName = root.selectedRemoteName.length > 0 ? root.selectedRemoteName : root.fileNameFromPath(remotePath)
-        var localPath = root.transferLocalPath.length > 0 ? root.transferLocalPath : root.joinLocalPath(leftModel.path, localName)
-        if (queueModel.enqueueRemoteDownload(activeProtocol, activeHost, activePort, activeUsername, activePassword, activePrivateKeyPath, activePrivateKeyPassphrase, remotePath, localPath)) {
-            root.transferLocalPath = localPath
-            statusText = qsTr("Queued download %1").arg(remotePath)
-            addLog(qsTr("Queued download %1 → %2").arg(remotePath).arg(localPath))
+        var conflicts = []
+        for (var i = 0; i < downloads.length; i++) {
+            var entryStatus = leftModel.entryStatus(downloads[i].destination)
+            if (entryStatus < 0) {
+                statusText = qsTr("Could not check whether %1 already exists").arg(downloads[i].destination)
+                root.pendingDownloads = []
+                root.conflictingDownloadPaths = []
+                return
+            }
+            if (entryStatus > 0) {
+                conflicts.push(downloads[i].destination)
+            }
+        }
+        root.pendingDownloads = downloads
+        root.conflictingDownloadPaths = conflicts
+        root.pendingConflictIsDownload = true
+        if (conflicts.length > 0) {
+            overwritePromptDialog.open()
+        } else {
+            root.queuePendingDownloads("")
         }
     }
 
@@ -1482,9 +1531,12 @@ ApplicationWindow {
             spacing: 10
             Label {
                 Layout.fillWidth: true
-                text: root.conflictingUploadPaths.length === 1
-                      ? qsTr("An item named %1 already exists at the destination.").arg(root.conflictingUploadPaths[0])
-                      : qsTr("%1 items already exist at the destination.").arg(root.conflictingUploadPaths.length)
+                property var conflictPaths: root.pendingConflictIsDownload
+                                            ? root.conflictingDownloadPaths
+                                            : root.conflictingUploadPaths
+                text: conflictPaths.length === 1
+                      ? qsTr("An item named %1 already exists at the destination.").arg(conflictPaths[0])
+                      : qsTr("%1 items already exist at the destination.").arg(conflictPaths.length)
                 wrapMode: Text.WrapAnywhere
                 font.bold: true
             }
@@ -1499,7 +1551,8 @@ ApplicationWindow {
             Button {
                 text: qsTr("Keep existing")
                 onClicked: {
-                    root.queuePendingUploads("keep-existing")
+                    if (root.pendingConflictIsDownload) root.queuePendingDownloads("keep-existing")
+                    else root.queuePendingUploads("keep-existing")
                     overwritePromptDialog.accept()
                 }
             }
@@ -1507,14 +1560,16 @@ ApplicationWindow {
                 text: qsTr("Replace")
                 highlighted: true
                 onClicked: {
-                    root.queuePendingUploads("replace")
+                    if (root.pendingConflictIsDownload) root.queuePendingDownloads("replace")
+                    else root.queuePendingUploads("replace")
                     overwritePromptDialog.accept()
                 }
             }
             Button {
                 text: qsTr("Keep both")
                 onClicked: {
-                    root.queuePendingUploads("keep-both")
+                    if (root.pendingConflictIsDownload) root.queuePendingDownloads("keep-both")
+                    else root.queuePendingUploads("keep-both")
                     overwritePromptDialog.accept()
                 }
             }
@@ -1524,9 +1579,13 @@ ApplicationWindow {
             }
         }
         onRejected: {
+            var cancelledDownload = root.pendingConflictIsDownload
             root.pendingUploads = []
             root.conflictingUploadPaths = []
-            root.statusText = qsTr("Upload cancelled")
+            root.pendingDownloads = []
+            root.conflictingDownloadPaths = []
+            root.pendingConflictIsDownload = false
+            root.statusText = cancelledDownload ? qsTr("Download cancelled") : qsTr("Upload cancelled")
         }
     }
 

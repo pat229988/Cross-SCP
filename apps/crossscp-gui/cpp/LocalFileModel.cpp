@@ -158,6 +158,15 @@ bool LocalFileModel::isDirectoryPath(const QString &path) const {
   return QFileInfo(path.trimmed()).isDir();
 }
 
+int LocalFileModel::entryStatus(const QString &path) const {
+  const QString trimmedPath = path.trimmed();
+  if (trimmedPath.isEmpty()) {
+    return -1;
+  }
+  const QFileInfo entry(trimmedPath);
+  return entry.exists() || entry.isSymLink() ? 1 : 0;
+}
+
 QString LocalFileModel::homePath() const {
   const QString home = QStandardPaths::writableLocation(QStandardPaths::HomeLocation);
   return home.isEmpty() ? QDir::homePath() : home;

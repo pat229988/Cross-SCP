@@ -126,10 +126,11 @@ bool TransferQueueModel::enqueueRemoteDownload(
     const QString &protocol, const QString &host, int port, const QString &username,
     const QString &password, const QString &privateKeyPath,
     const QString &privateKeyPassphrase, const QString &source,
-    const QString &destination) {
+    const QString &destination, const QString &conflictPolicy) {
   return enqueueRemoteTransfer(QStringLiteral("Download"), protocol, host, port,
                                username, password, privateKeyPath,
-                               privateKeyPassphrase, source, destination, QString());
+                               privateKeyPassphrase, source, destination,
+                               conflictPolicy);
 }
 
 bool TransferQueueModel::enqueueSftpTransfer(
@@ -159,20 +160,20 @@ bool TransferQueueModel::enqueueRemoteTransfer(
 
   const bool upload = direction == QStringLiteral("Upload");
   const QString normalizedConflictPolicy = conflictPolicy.trimmed().toLower();
-  if (upload && !normalizedConflictPolicy.isEmpty() &&
+  if (!normalizedConflictPolicy.isEmpty() &&
       normalizedConflictPolicy != QStringLiteral("keep-existing") &&
       normalizedConflictPolicy != QStringLiteral("replace") &&
       normalizedConflictPolicy != QStringLiteral("keep-both")) {
     return false;
   }
   const QFileInfo sourceInfo(source.trimmed());
-  const bool requiresNativeUpload =
-      upload && (!normalizedConflictPolicy.isEmpty() ||
-                 (normalizedProtocol == QStringLiteral("sftp") && sourceInfo.isDir()));
+  const bool requiresNativeTransfer =
+      !normalizedConflictPolicy.isEmpty() ||
+      (upload && normalizedProtocol == QStringLiteral("sftp") && sourceInfo.isDir());
   const bool useOpenSsh = useOpenSshBackend_ &&
                           (normalizedProtocol == QStringLiteral("sftp") ||
                            normalizedProtocol == QStringLiteral("scp")) &&
-                          !requiresNativeUpload;
+                          !requiresNativeTransfer;
   QString program;
   QStringList arguments;
   if (useOpenSsh) {
@@ -196,7 +197,7 @@ bool TransferQueueModel::enqueueRemoteTransfer(
                  source.trimmed(),
                  upload ? QStringLiteral("--remote") : QStringLiteral("--local"),
                  destination.trimmed()};
-    if (upload && !normalizedConflictPolicy.isEmpty()) {
+    if (!normalizedConflictPolicy.isEmpty()) {
       arguments.append(QStringLiteral("--conflict"));
       arguments.append(normalizedConflictPolicy);
     }

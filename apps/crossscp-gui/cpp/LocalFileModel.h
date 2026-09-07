@@ -39,6 +39,7 @@ public:
   Q_INVOKABLE bool createDirectory(const QString &name);
   Q_INVOKABLE bool deletePath(const QString &path);
   Q_INVOKABLE bool isDirectoryPath(const QString &path) const;
+  Q_INVOKABLE int entryStatus(const QString &path) const;
   Q_INVOKABLE QString homePath() const;
 
 signals:

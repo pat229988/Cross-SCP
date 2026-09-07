@@ -92,7 +92,7 @@ fn print_help() {
     println!("  crossscp remote-capabilities --protocol <sftp|scp|ftp|ftps|webdav|s3|local>");
     println!("  crossscp remote-list --protocol <sftp|ftp|ftps> --host <host> --port <port> --username <user> --path <remote-path>");
     println!("  crossscp remote-upload --protocol <sftp|scp|ftp|ftps> --host <host> --port <port> --username <user> --local <path> --remote <path> [--conflict <keep-existing|replace|keep-both>]");
-    println!("  crossscp remote-download --protocol <sftp|scp|ftp|ftps> --host <host> --port <port> --username <user> --remote <path> --local <path>");
+    println!("  crossscp remote-download --protocol <sftp|scp|ftp|ftps> --host <host> --port <port> --username <user> --remote <path> --local <path> [--conflict <keep-existing|replace|keep-both>]");
     println!("  crossscp remote-mkdir --protocol <sftp|ftp|ftps> --host <host> --port <port> --username <user> --path <remote-path>");
     println!("  crossscp remote-delete --protocol <sftp|ftp|ftps> --host <host> --port <port> --username <user> --path <remote-path>");
     println!("  crossscp remote-rename --protocol <ftp|ftps> --host <host> --port <port> --username <user> --from <old-path> --to <new-path>");
@@ -230,9 +230,6 @@ fn run_remote_transfer(args: Vec<String>, kind: SftpTransferKind) {
     let protocol = remote_protocol(&parsed).unwrap_or_else(|message| exit_error(&message, 2));
     let (host, port, username) =
         remote_host_port_username(&parsed).unwrap_or_else(|message| exit_error(&message, 2));
-    if matches!(kind, SftpTransferKind::Download) && parsed.conflict.is_some() {
-        exit_error("--conflict is only valid for uploads", 2);
-    }
     let requested_conflict_policy = parsed.conflict;
     let conflict_policy = requested_conflict_policy.unwrap_or_default();
     let local = parsed
@@ -253,7 +250,7 @@ fn run_remote_transfer(args: Vec<String>, kind: SftpTransferKind) {
                 vec![host, port, username, remote, local],
                 kind,
                 conflict_policy,
-                false,
+                true,
             ),
         },
         SessionProtocol::Ftp | SessionProtocol::Ftps => run_ftp_transfer(
@@ -268,11 +265,18 @@ fn run_remote_transfer(args: Vec<String>, kind: SftpTransferKind) {
             },
             kind,
         ),
-        SessionProtocol::Scp if conflict_policy != FileConflictPolicy::Replace => exit_error(
-            "SCP cannot inspect remote conflicts; use SFTP for keep-existing or keep-both",
-            1,
-        ),
-        SessionProtocol::Scp => run_scp_transfer(host, port, username, local, remote, kind),
+        SessionProtocol::Scp
+            if matches!(kind, SftpTransferKind::Upload)
+                && conflict_policy != FileConflictPolicy::Replace =>
+        {
+            exit_error(
+                "SCP cannot inspect remote conflicts; use SFTP for keep-existing or keep-both",
+                1,
+            )
+        }
+        SessionProtocol::Scp => {
+            run_scp_transfer(host, port, username, local, remote, kind, conflict_policy)
+        }
         other => unsupported_live_protocol(other),
     }
 }
@@ -350,6 +354,7 @@ fn run_scp_transfer(
     local: String,
     remote: String,
     kind: SftpTransferKind,
+    conflict_policy: FileConflictPolicy,
 ) {
     let mut adapter = match connect_scp(&host, &port, &username) {
         Ok(adapter) => adapter,
@@ -359,9 +364,12 @@ fn run_scp_transfer(
         SftpTransferKind::Upload => {
             adapter.upload_file_with_progress(&local, &remote, print_transfer_progress)
         }
-        SftpTransferKind::Download => {
-            adapter.download_file_with_progress(&remote, &local, print_transfer_progress)
-        }
+        SftpTransferKind::Download => adapter.download_file_with_progress_policy(
+            &remote,
+            &local,
+            conflict_policy,
+            print_transfer_progress,
+        ),
     };
     match result {
         Ok(progress) => print_scp_progress(progress),
@@ -446,7 +454,14 @@ fn run_ftp_transfer(
             }
             None => adapter.upload_path(&transfer.local, &transfer.remote),
         },
-        SftpTransferKind::Download => adapter.download_path(&transfer.remote, &transfer.local),
+        SftpTransferKind::Download => match transfer.conflict_policy {
+            Some(conflict_policy) => adapter.download_path_with_policy(
+                &transfer.remote,
+                &transfer.local,
+                conflict_policy,
+            ),
+            None => adapter.download_path(&transfer.remote, &transfer.local),
+        },
     };
     match result {
         Ok(progress) => {
@@ -779,9 +794,10 @@ fn run_sftp_transfer(
             conflict_policy,
             print_transfer_progress,
         ),
-        SftpTransferKind::Download => adapter.backend_mut().download_file_with_progress(
+        SftpTransferKind::Download => adapter.backend_mut().download_file_with_progress_policy(
             &args[3],
             &args[4],
+            conflict_policy,
             print_transfer_progress,
         ),
     };
@@ -1013,7 +1029,7 @@ mod tests {
     use super::parse_remote_args;
 
     #[test]
-    fn remote_upload_parses_keep_both_conflict_policy() {
+    fn remote_transfer_parses_keep_both_conflict_policy() {
         let parsed = parse_remote_args(vec![
             "--protocol".to_string(),
             "sftp".to_string(),
@@ -1026,7 +1042,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_upload_rejects_unknown_conflict_policy() {
+    fn remote_transfer_rejects_unknown_conflict_policy() {
         let error = parse_remote_args(vec![
             "--conflict".to_string(),
             "rename-randomly".to_string(),

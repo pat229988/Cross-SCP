@@ -58,12 +58,13 @@ public:
                                        const QString &destination,
                                        const QString &conflictPolicy);
   Q_INVOKABLE bool enqueueRemoteDownload(const QString &protocol, const QString &host,
-                                         int port, const QString &username,
-                                         const QString &password,
-                                         const QString &privateKeyPath,
-                                         const QString &privateKeyPassphrase,
-                                         const QString &source,
-                                         const QString &destination);
+                                          int port, const QString &username,
+                                          const QString &password,
+                                          const QString &privateKeyPath,
+                                          const QString &privateKeyPassphrase,
+                                          const QString &source,
+                                          const QString &destination,
+                                          const QString &conflictPolicy);
   Q_INVOKABLE void clearFinished();
   Q_INVOKABLE void clearAll();
 
