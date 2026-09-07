@@ -1,15 +1,10 @@
 name: Release Linux
 
 on:
-  push:
-    branches:
-      - main
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -58,18 +53,6 @@ jobs:
             ${{ env.CROSSSCP_DIST_DIR }}/*.deb
             ${{ env.CROSSSCP_DIST_DIR }}/*.asc
             ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
-      - name: Upload DEB to GitHub Release
-        if: ${{ github.ref_type == 'tag' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: false
-          prerelease: false
-          make_latest: true
-          generate_release_notes: true
-          files: |
-            ${{ env.CROSSSCP_DIST_DIR }}/*.deb
-            ${{ env.CROSSSCP_DIST_DIR }}/*.asc
-            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
 
   fedora-rpm:
     name: Build Fedora RPM
@@ -110,18 +93,6 @@ jobs:
             ${{ env.CROSSSCP_DIST_DIR }}/*.rpm
             ${{ env.CROSSSCP_DIST_DIR }}/*.asc
             ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
-      - name: Upload RPM to GitHub Release
-        if: ${{ github.ref_type == 'tag' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: false
-          prerelease: false
-          make_latest: true
-          generate_release_notes: true
-          files: |
-            ${{ env.CROSSSCP_DIST_DIR }}/*.rpm
-            ${{ env.CROSSSCP_DIST_DIR }}/*.asc
-            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
   flatpak:
     name: Build Flatpak bundle
     runs-on: ubuntu-latest
@@ -154,18 +125,6 @@ jobs:
         with:
           name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
           path: |
-            ${{ env.CROSSSCP_DIST_DIR }}/*.flatpak
-            ${{ env.CROSSSCP_DIST_DIR }}/*.asc
-            ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
-      - name: Upload Flatpak to GitHub Release
-        if: ${{ github.ref_type == 'tag' }}
-        uses: softprops/action-gh-release@v2
-        with:
-          draft: false
-          prerelease: false
-          make_latest: true
-          generate_release_notes: true
-          files: |
             ${{ env.CROSSSCP_DIST_DIR }}/*.flatpak
             ${{ env.CROSSSCP_DIST_DIR }}/*.asc
             ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
