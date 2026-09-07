@@ -27,8 +27,8 @@ TARGET_ARCH="$2"
 ARTIFACT_OS="${CROSSSCP_ARTIFACT_OS:-${TARGET_OS}}"
 BASE_VERSION="$(tr -d '[:space:]' < VERSION)"
 
-if [[ ! "${BASE_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-  printf 'VERSION must contain a semver tag; found: %s\n' "${BASE_VERSION}" >&2
+if [[ ! "${BASE_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  printf 'VERSION must contain a stable semver tag like v1.0.3; found: %s\n' "${BASE_VERSION}" >&2
   exit 1
 fi
 

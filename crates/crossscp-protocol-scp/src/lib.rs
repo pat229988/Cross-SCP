@@ -6,10 +6,13 @@ use std::fmt;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crossscp_core::{ProtocolCapabilities, SessionProfile, SessionProtocol};
+use crossscp_core::{
+    numbered_local_conflict_path, FileConflictPolicy, ProtocolCapabilities, SessionProfile,
+    SessionProtocol,
+};
 use crossscp_security::{CredentialRef, CredentialSecret, CredentialService, SecurityError};
 
 pub const DEFAULT_SCP_PORT: u16 = 22;
@@ -208,20 +211,48 @@ impl ScpAdapter {
         &mut self,
         remote_path: &str,
         local_path: &str,
+        report_progress: F,
+    ) -> Result<ScpTransferSummary, ScpError>
+    where
+        F: FnMut(u64, Option<u64>),
+    {
+        self.download_file_with_progress_policy(
+            remote_path,
+            local_path,
+            FileConflictPolicy::Replace,
+            report_progress,
+        )
+    }
+
+    pub fn download_file_with_progress_policy<F>(
+        &mut self,
+        remote_path: &str,
+        local_path: &str,
+        conflict_policy: FileConflictPolicy,
         mut report_progress: F,
     ) -> Result<ScpTransferSummary, ScpError>
     where
         F: FnMut(u64, Option<u64>),
     {
         let session = self.session.as_ref().ok_or(ScpError::NotConnected)?;
-        if let Some(parent) = Path::new(local_path).parent() {
+        let Some(destination) =
+            resolve_local_download_file_destination(Path::new(local_path), conflict_policy)?
+        else {
+            return Ok(ScpTransferSummary {
+                source: remote_path.to_string(),
+                destination: local_path.to_string(),
+                bytes_done: 0,
+                bytes_total: None,
+            });
+        };
+        if let Some(parent) = destination.parent() {
             if !parent.as_os_str().is_empty() {
                 fs::create_dir_all(parent)?;
             }
         }
         let (mut remote, stat) = session.scp_recv(Path::new(remote_path))?;
         let bytes_total = Some(stat.size());
-        let mut local = File::create(local_path)?;
+        let mut local = File::create(&destination)?;
         let bytes_done =
             copy_with_progress(&mut remote, &mut local, bytes_total, &mut report_progress)?;
         remote.send_eof()?;
@@ -230,10 +261,49 @@ impl ScpAdapter {
         remote.wait_close()?;
         Ok(ScpTransferSummary {
             source: remote_path.to_string(),
-            destination: local_path.to_string(),
+            destination: destination.to_string_lossy().into_owned(),
             bytes_done,
             bytes_total,
         })
+    }
+}
+
+fn resolve_local_download_file_destination(
+    local_path: &Path,
+    conflict_policy: FileConflictPolicy,
+) -> Result<Option<PathBuf>, ScpError> {
+    let metadata = match fs::symlink_metadata(local_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Some(local_path.to_path_buf()));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    match conflict_policy {
+        FileConflictPolicy::KeepExisting => Ok(None),
+        FileConflictPolicy::Replace => {
+            if metadata.file_type().is_dir() {
+                fs::remove_dir_all(local_path)?;
+            } else {
+                fs::remove_file(local_path)?;
+            }
+            Ok(Some(local_path.to_path_buf()))
+        }
+        FileConflictPolicy::KeepBoth => {
+            for copy_number in 1..=u32::MAX {
+                let candidate = numbered_local_conflict_path(local_path, copy_number, false);
+                match fs::symlink_metadata(&candidate) {
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        return Ok(Some(candidate));
+                    }
+                    Ok(_) => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            Err(ScpError::Io(
+                "could not allocate a numbered local destination".to_string(),
+            ))
+        }
     }
 }
 

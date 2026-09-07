@@ -17,10 +17,10 @@ pub use prompts::{
     PromptRequest, PromptResponse,
 };
 pub use protocol::{
-    numbered_conflict_path, CancellationToken, CreateDirectoryOptions, FileConflictPolicy,
-    Protocol, ProtocolCapabilities, RemoteDeleteRequest, RemoteErrorKind, RemoteFile,
-    RemoteFileSystem, RemoteListRequest, RemoteMkdirRequest, RemoteOperation,
-    RemoteOperationResult, RemoteProgressEvent, RemoteRenameRequest, RemoteTransferRequest,
-    RemoveOptions, RenameOptions,
+    numbered_conflict_path, numbered_local_conflict_path, CancellationToken,
+    CreateDirectoryOptions, FileConflictPolicy, Protocol, ProtocolCapabilities,
+    RemoteDeleteRequest, RemoteErrorKind, RemoteFile, RemoteFileSystem, RemoteListRequest,
+    RemoteMkdirRequest, RemoteOperation, RemoteOperationResult, RemoteProgressEvent,
+    RemoteRenameRequest, RemoteTransferRequest, RemoveOptions, RenameOptions,
 };
 pub use session::{ParseSessionProtocolError, SessionProfile, SessionProtocol};

@@ -8,7 +8,7 @@ use std::net::{TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crossscp_core::{numbered_conflict_path, FileConflictPolicy};
+use crossscp_core::{numbered_conflict_path, numbered_local_conflict_path, FileConflictPolicy};
 use crossscp_security::CredentialSecret;
 
 use crate::{
@@ -195,6 +195,24 @@ impl Ssh2Backend {
         &mut self,
         remote_path: &str,
         local_path: &str,
+        report_progress: F,
+    ) -> Result<SftpFileProgress, SftpError>
+    where
+        F: FnMut(u64, Option<u64>),
+    {
+        self.download_file_with_progress_policy(
+            remote_path,
+            local_path,
+            FileConflictPolicy::Replace,
+            report_progress,
+        )
+    }
+
+    pub fn download_file_with_progress_policy<F>(
+        &mut self,
+        remote_path: &str,
+        local_path: &str,
+        conflict_policy: FileConflictPolicy,
         mut report_progress: F,
     ) -> Result<SftpFileProgress, SftpError>
     where
@@ -204,38 +222,59 @@ impl Ssh2Backend {
         let sftp = session.sftp()?;
         let remote_path = normalize_remote_path(&sftp, remote_path);
         let remote_stat = sftp.stat(Path::new(&remote_path)).ok();
-        if remote_stat
+        let remote_is_directory = remote_stat
             .as_ref()
             .and_then(|stat| stat.perm)
-            .is_some_and(is_directory_perm)
-        {
-            let destination = resolve_download_directory_destination(&remote_path, local_path);
+            .is_some_and(is_directory_perm);
+        let destination = resolve_local_download_destination(
+            Path::new(local_path),
+            remote_is_directory,
+            conflict_policy,
+        )?;
+        if remote_is_directory {
             let bytes_total = remote_directory_size(&sftp, &remote_path)?;
+            let Some(destination) = destination else {
+                return Ok(SftpFileProgress {
+                    source: remote_path,
+                    destination: local_path.to_string(),
+                    bytes_done: 0,
+                    bytes_total: Some(bytes_total),
+                });
+            };
             let mut bytes_done = 0;
             report_progress(0, Some(bytes_total));
             download_directory_recursive_with_progress(
                 &sftp,
                 &remote_path,
-                Path::new(&destination),
+                &destination,
+                conflict_policy,
                 bytes_total,
                 &mut bytes_done,
                 &mut report_progress,
             )?;
             return Ok(SftpFileProgress {
                 source: remote_path,
-                destination,
+                destination: destination.to_string_lossy().into_owned(),
                 bytes_done,
                 bytes_total: Some(bytes_total),
             });
         }
-        if let Some(parent) = Path::new(local_path).parent() {
+        let bytes_total = remote_stat.and_then(|stat| stat.size);
+        let Some(destination) = destination else {
+            return Ok(SftpFileProgress {
+                source: remote_path,
+                destination: local_path.to_string(),
+                bytes_done: 0,
+                bytes_total,
+            });
+        };
+        if let Some(parent) = destination.parent() {
             if !parent.as_os_str().is_empty() {
                 fs::create_dir_all(parent)?;
             }
         }
         let mut remote_file = sftp.open(Path::new(&remote_path))?;
-        let mut local_file = fs::File::create(local_path)?;
-        let bytes_total = remote_stat.and_then(|stat| stat.size);
+        let mut local_file = fs::File::create(&destination)?;
         let bytes_done = copy_with_progress(
             &mut remote_file,
             &mut local_file,
@@ -245,7 +284,7 @@ impl Ssh2Backend {
 
         Ok(SftpFileProgress {
             source: remote_path,
-            destination: local_path.to_string(),
+            destination: destination.to_string_lossy().into_owned(),
             bytes_done,
             bytes_total,
         })
@@ -386,40 +425,7 @@ impl SftpBackend for Ssh2Backend {
         remote_path: &str,
         local_path: &str,
     ) -> Result<SftpFileProgress, SftpError> {
-        let session = self.session.as_ref().ok_or(SftpError::NotConnected)?;
-        let sftp = session.sftp()?;
-        let remote_path = normalize_remote_path(&sftp, remote_path);
-        let remote_stat = sftp.stat(Path::new(&remote_path)).ok();
-        if remote_stat
-            .as_ref()
-            .and_then(|stat| stat.perm)
-            .is_some_and(is_directory_perm)
-        {
-            let destination = resolve_download_directory_destination(&remote_path, local_path);
-            let bytes_done =
-                download_directory_recursive(&sftp, &remote_path, Path::new(&destination))?;
-            return Ok(SftpFileProgress {
-                source: remote_path.clone(),
-                destination,
-                bytes_done,
-                bytes_total: Some(bytes_done),
-            });
-        }
-        if let Some(parent) = Path::new(local_path).parent() {
-            if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent)?;
-            }
-        }
-        let mut remote_file = sftp.open(Path::new(&remote_path))?;
-        let mut local_file = fs::File::create(local_path)?;
-        let bytes_done = std::io::copy(&mut remote_file, &mut local_file)?;
-
-        Ok(SftpFileProgress {
-            source: remote_path,
-            destination: local_path.to_string(),
-            bytes_done,
-            bytes_total: remote_stat.and_then(|stat| stat.size),
-        })
+        self.download_file_with_progress(remote_path, local_path, |_, _| {})
     }
 
     fn create_directory(&mut self, remote_path: &str) -> Result<(), SftpError> {
@@ -575,15 +581,60 @@ fn next_available_remote_path(
     )))
 }
 
-fn resolve_download_directory_destination(remote_path: &str, local_path: &str) -> String {
-    let local = Path::new(local_path);
-    if local.exists() && local.is_dir() {
-        return local
-            .join(remote_basename(remote_path))
-            .to_string_lossy()
-            .into_owned();
+fn resolve_local_download_destination(
+    local_path: &Path,
+    source_is_directory: bool,
+    conflict_policy: FileConflictPolicy,
+) -> Result<Option<PathBuf>, SftpError> {
+    let metadata = match fs::symlink_metadata(local_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(Some(local_path.to_path_buf()));
+        }
+        Err(error) => return Err(error.into()),
+    };
+    let destination_is_directory = metadata.file_type().is_dir();
+    match conflict_policy {
+        FileConflictPolicy::KeepExisting => {
+            if source_is_directory && destination_is_directory {
+                Ok(Some(local_path.to_path_buf()))
+            } else {
+                Ok(None)
+            }
+        }
+        FileConflictPolicy::Replace => {
+            if source_is_directory && destination_is_directory {
+                return Ok(Some(local_path.to_path_buf()));
+            }
+            remove_local_path(local_path, &metadata)?;
+            Ok(Some(local_path.to_path_buf()))
+        }
+        FileConflictPolicy::KeepBoth => {
+            for copy_number in 1..=u32::MAX {
+                let candidate =
+                    numbered_local_conflict_path(local_path, copy_number, source_is_directory);
+                match fs::symlink_metadata(&candidate) {
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        return Ok(Some(candidate));
+                    }
+                    Ok(_) => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            Err(SftpError::Backend(
+                "could not allocate a numbered local destination".to_string(),
+            ))
+        }
     }
-    local_path.to_string()
+}
+
+fn remove_local_path(path: &Path, metadata: &fs::Metadata) -> Result<(), SftpError> {
+    if metadata.file_type().is_dir() {
+        fs::remove_dir_all(path)?;
+    } else {
+        fs::remove_file(path)?;
+    }
+    Ok(())
 }
 
 fn remote_basename(remote_path: &str) -> String {
@@ -801,34 +852,6 @@ where
     Ok(bytes_done)
 }
 
-fn download_directory_recursive(
-    sftp: &ssh2::Sftp,
-    remote_dir: &str,
-    local_dir: &Path,
-) -> Result<u64, SftpError> {
-    fs::create_dir_all(local_dir)?;
-    let mut bytes_done = 0;
-    for (entry_path, stat) in sftp.readdir(Path::new(remote_dir))? {
-        let name = entry_name(&entry_path);
-        if name == "." || name == ".." {
-            continue;
-        }
-        let remote_path = remote_join(remote_dir, &name);
-        let local_path: PathBuf = local_dir.join(&name);
-        if stat.perm.is_some_and(is_directory_perm) {
-            bytes_done += download_directory_recursive(sftp, &remote_path, &local_path)?;
-        } else {
-            if let Some(parent) = local_path.parent() {
-                fs::create_dir_all(parent)?;
-            }
-            let mut remote_file = sftp.open(Path::new(&remote_path))?;
-            let mut local_file = fs::File::create(&local_path)?;
-            bytes_done += std::io::copy(&mut remote_file, &mut local_file)?;
-        }
-    }
-    Ok(bytes_done)
-}
-
 fn remote_directory_size(sftp: &ssh2::Sftp, remote_dir: &str) -> Result<u64, SftpError> {
     let mut bytes_total = 0;
     for (entry_path, stat) in sftp.readdir(Path::new(remote_dir))? {
@@ -850,6 +873,7 @@ fn download_directory_recursive_with_progress<F>(
     sftp: &ssh2::Sftp,
     remote_dir: &str,
     local_dir: &Path,
+    conflict_policy: FileConflictPolicy,
     bytes_total: u64,
     bytes_done: &mut u64,
     report_progress: &mut F,
@@ -865,11 +889,18 @@ where
         }
         let remote_path = remote_join(remote_dir, &name);
         let local_path: PathBuf = local_dir.join(&name);
-        if stat.perm.is_some_and(is_directory_perm) {
+        let source_is_directory = stat.perm.is_some_and(is_directory_perm);
+        let Some(local_path) =
+            resolve_local_download_destination(&local_path, source_is_directory, conflict_policy)?
+        else {
+            continue;
+        };
+        if source_is_directory {
             download_directory_recursive_with_progress(
                 sftp,
                 &remote_path,
                 &local_path,
+                conflict_policy,
                 bytes_total,
                 bytes_done,
                 report_progress,
@@ -1031,11 +1062,27 @@ impl From<ssh2::Error> for SftpError {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
     use std::io::Cursor;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use crossscp_core::FileConflictPolicy;
 
     use super::{
-        copy_with_progress, resolve_upload_destination_for_type, SFTP_TRANSFER_BUFFER_SIZE,
+        copy_with_progress, resolve_local_download_destination,
+        resolve_upload_destination_for_type, SFTP_TRANSFER_BUFFER_SIZE,
     };
+
+    fn temporary_directory(test_name: &str) -> std::path::PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "crossscp-sftp-{test_name}-{}-{nonce}",
+            std::process::id()
+        ))
+    }
 
     #[test]
     fn same_named_upload_directory_uses_existing_directory_as_merge_root() {
@@ -1059,6 +1106,38 @@ mod tests {
             resolve_upload_destination_for_type("/tmp/report.txt", "/uploads/archive", false, true,),
             "/uploads/archive/report.txt"
         );
+    }
+
+    #[test]
+    fn existing_download_directory_is_exact_merge_root_not_nested() {
+        let root = temporary_directory("exact-download-root");
+        let destination = root.join("photos");
+        fs::create_dir_all(&destination).expect("create destination");
+
+        let resolved =
+            resolve_local_download_destination(&destination, true, FileConflictPolicy::Replace)
+                .expect("resolve destination")
+                .expect("replace has a destination");
+
+        assert_eq!(resolved, destination);
+        assert!(!resolved.join("photos").exists());
+        fs::remove_dir_all(root).expect("clean temporary directory");
+    }
+
+    #[test]
+    fn download_keep_both_allocates_numbered_sibling() {
+        let root = temporary_directory("keep-both");
+        let destination = root.join("photos");
+        fs::create_dir_all(&destination).expect("create destination");
+        fs::create_dir_all(root.join("photos (1)")).expect("create first copy");
+
+        let resolved =
+            resolve_local_download_destination(&destination, true, FileConflictPolicy::KeepBoth)
+                .expect("resolve destination")
+                .expect("keep both has a destination");
+
+        assert_eq!(resolved, root.join("photos (2)"));
+        fs::remove_dir_all(root).expect("clean temporary directory");
     }
 
     #[test]

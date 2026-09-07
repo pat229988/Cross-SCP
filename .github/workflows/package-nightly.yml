@@ -1,9 +1,11 @@
-name: Package Nightly
+name: Package Builds
 
 on:
   push:
     branches:
       - dev
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       package:
@@ -23,10 +25,25 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
-  group: package-nightly-${{ github.ref }}
+  group: package-builds-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  validate:
+    name: Rust validation gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify formatting
+        run: cargo fmt --all -- --check
+      - name: Run workspace tests
+        run: cargo test --workspace
+      - name: Run Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: Check SFTP runtime feature
+        run: cargo check -p crossscp-cli --features ssh2-backend
+
   macos-dmg:
     name: macOS unsigned DMG smoke test
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.package == 'all' || inputs.package == 'macos' }}
@@ -50,12 +67,18 @@ jobs:
           DMG_PATH="$CROSSSCP_DIST_DIR/$CROSSSCP_ARTIFACT_BASE.dmg" \
           QT_BIN_DIR="$QT_ROOT_DIR/bin" \
           bash scripts/package-gui.sh
+      - name: Prepare tester installer script
+        run: |
+          cp scripts/install-macos.sh "$CROSSSCP_DIST_DIR/install-macos.sh"
+          chmod +x "$CROSSSCP_DIST_DIR/install-macos.sh"
+          scripts/checksum-artifacts.sh "$CROSSSCP_DIST_DIR/install-macos.sh"
       - name: Upload macOS package
         uses: actions/upload-artifact@v6
         with:
           name: ${{ env.CROSSSCP_ARTIFACT_BASE }}
           path: |
             ${{ env.CROSSSCP_DIST_DIR }}/*.dmg
+            ${{ env.CROSSSCP_DIST_DIR }}/install-macos.sh
             ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
 
   windows-zip:
@@ -229,3 +252,87 @@ jobs:
           path: |
             ${{ env.CROSSSCP_DIST_DIR }}/*.flatpak
             ${{ env.CROSSSCP_DIST_DIR }}/*.sha256
+
+  publish-release:
+    name: Publish tested nightly or stable release
+    if: ${{ (github.event_name == 'push' || inputs.package == 'all') && (github.ref == 'refs/heads/dev' || github.ref_type == 'tag') }}
+    needs:
+      - validate
+      - macos-dmg
+      - windows-zip
+      - ubuntu-deb
+      - fedora-rpm
+      - flatpak
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Download tested packages
+        uses: actions/download-artifact@v6
+        with:
+          path: release-assets
+      - name: Validate complete package set
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          for suffix in \
+            '-macos-arm64.dmg' \
+            '-windows-x64-setup.exe' \
+            '-windows-x64-portable.zip' \
+            '-ubuntu-amd64.deb' \
+            '-fedora-x86_64.rpm' \
+            '-linux-x86_64.flatpak'; do
+            matches=(release-assets/**/*"$suffix")
+            if [[ "${#matches[@]}" -ne 1 ]]; then
+              echo "Expected exactly one tested asset ending in $suffix; found ${#matches[@]}" >&2
+              exit 1
+            fi
+          done
+          installers=(release-assets/**/install-macos.sh)
+          if [[ "${#installers[@]}" -ne 1 ]]; then
+            echo "Expected exactly one install-macos.sh; found ${#installers[@]}" >&2
+            exit 1
+          fi
+      - name: Publish rolling nightly prerelease
+        if: ${{ github.ref == 'refs/heads/dev' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          mapfile -d '' assets < <(find release-assets -type f -print0)
+          gh release delete nightly --cleanup-tag --yes || true
+          gh release create nightly "${assets[@]}" \
+            --target "$GITHUB_SHA" \
+            --title "CrossSCP Nightly" \
+            --notes "Automated prerelease built and packaged from dev commit $GITHUB_SHA. Nightly builds may be unstable; use the latest numbered release for production." \
+            --prerelease \
+            --latest=false
+      - name: Publish stable release after all packages pass
+        if: ${{ github.ref_type == 'tag' }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          version="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ || "$tag" != "$version" ]]; then
+            echo "Stable tag $tag must be exact semver and match VERSION $version" >&2
+            exit 1
+          fi
+          shopt -s globstar nullglob
+          mapfile -d '' assets < <(find release-assets -type f -print0)
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber
+            gh release edit "$tag" --draft=false --prerelease=false --latest
+          else
+            gh release create "$tag" "${assets[@]}" \
+              --verify-tag \
+              --title "CrossSCP $tag" \
+              --generate-notes \
+              --latest
+          fi

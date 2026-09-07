@@ -90,8 +90,8 @@ curl -fsSL https://github.com/pat229988/Cross-SCP/releases/latest/download/insta
 Install a specific tag:
 
 ```bash
-curl -fsSL https://github.com/pat229988/Cross-SCP/releases/download/v1.0.2/install-macos.sh \
-  | CROSSSCP_VERSION="v1.0.2" bash
+curl -fsSL https://github.com/pat229988/Cross-SCP/releases/download/v1.0.3/install-macos.sh \
+  | CROSSSCP_VERSION="v1.0.3" bash
 ```
 
 Install from a direct DMG URL:

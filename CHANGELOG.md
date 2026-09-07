@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+## [1.0.3] - 2026-09-07
+
+### Added
+
+- Published rolling, downloadable nightly prereleases from fully packaged `dev` builds.
+- Added Keep existing, Replace, Keep both, and Cancel handling for remote-to-local downloads across SFTP, SCP, FTP, and FTPS.
+
+### Fixed
+
+- Prevented repeated remote folder downloads from creating duplicate `folder/folder` nesting.
+- Kept nightly prereleases separate from the latest stable release and stable website download links.
+
 ## [1.0.2] - 2026-07-22
 
 ### Added
