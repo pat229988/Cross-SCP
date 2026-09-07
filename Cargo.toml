@@ -20,9 +20,10 @@ members = [
 resolver = "2"
 
 [workspace.package]
+version = "1.0.2"
 edition = "2021"
 license = "AGPL-3.0-or-later"
-repository = "https://example.invalid/crossscp"
+repository = "https://github.com/pat229988/Cross-SCP"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -118,7 +118,12 @@ if(UNIX AND NOT APPLE)
 endif()
 
 if(WIN32)
-  target_sources(crossscp-gui PRIVATE packaging/windows/crossscp.rc)
+  configure_file(
+    packaging/windows/crossscp.rc.in
+    "${CMAKE_CURRENT_BINARY_DIR}/crossscp.rc"
+    @ONLY
+  )
+  target_sources(crossscp-gui PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/crossscp.rc")
 endif()
 
 install(TARGETS crossscp-gui

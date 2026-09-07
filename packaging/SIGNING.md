@@ -40,7 +40,7 @@ For a no-fee beta/tester flow, use the terminal installer instead of browser
 downloads:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/pat229988/Cross-SCP/dev/scripts/install-macos.sh | bash
+curl -fsSL https://github.com/pat229988/Cross-SCP/releases/latest/download/install-macos.sh | bash
 ```
 
 This installer downloads with `curl`, copies the app to `/Applications`, and

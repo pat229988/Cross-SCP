@@ -1,7 +1,7 @@
 !include "MUI2.nsh"
 
 !ifndef VERSION
-  !define VERSION "0.1.0"
+  !define VERSION "1.0.2"
 !endif
 !ifndef DEPLOY_DIR
   !define DEPLOY_DIR "build\\gui-release\\apps\\crossscp-gui\\Release"

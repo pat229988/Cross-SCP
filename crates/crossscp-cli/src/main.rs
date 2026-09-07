@@ -67,7 +67,7 @@ fn main() {
 }
 
 fn print_version() {
-    println!("crossscp 0.1.0");
+    println!("crossscp {}", env!("CARGO_PKG_VERSION"));
 }
 
 fn print_help() {
